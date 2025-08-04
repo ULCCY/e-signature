@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <title>Digital Document</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 30px;
+            background-color: #f5f5f5;
+        }
+        h1 {
+            text-align: center;
+        }
+        .group {
+            margin-bottom: 40px;
+        }
+        .folder-boxes {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+        }
+        .folder {
+            padding: 20px;
+            border-radius: 10px;
+            color: white;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+        }
+        .folder.green {
+            background-color: #4CAF50;
+        }
+        .folder.gray {
+            background-color: #888888;
+        }
+        .folder h2 {
+            margin-top: 0;
+            font-size: 20px;
+        }
+        ul {
+            padding-left: 20px;
+        }
+        a {
+            color: #ffffff;
+            text-decoration: underline;
+        }
+        a:hover {
+            color: #dddddd;
+        }
+    </style>
+</head>
+<body>
+    <h1>📁 Digital Document List</h1>
+
+    {% for group in ['Vehicle Repair Request', 'Rabat', 'PRS', 'Final'] %}
+        <div class="group">
+            <h2>{{ group }}</h2>
+            <div class="folder-boxes">
+                {% for key, f in folders.items() if f.group == group %}
+                    <div class="folder {% if f.files %}green{% else %}gray{% endif %}">
+                        <h2>{{ f.name }}</h2>
+                        {% if f.files %}
+                            <ul>
+                                {% for file in f.files %}
+                                    <li>
+                                        <a href="{{ url_for('access_file', folder_id=key, file_id=file.id) }}">{{ file.name }}</a>
+                                    </li>
+                                {% endfor %}
+                            </ul>
+                        {% else %}
+                            <p><i>Tidak ada dokumen</i></p>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    {% endfor %}
+</body>
+</html>

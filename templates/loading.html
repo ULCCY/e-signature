@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Loading PDF...</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            text-align: center;
+            padding-top: 50px;
+        }
+        .spinner {
+            border: 8px solid #f3f3f3;
+            border-top: 8px solid #3498db;
+            border-radius: 50%;
+            width: 80px;
+            height: 80px;
+            animation: spin 1s linear infinite;
+            margin: auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .text {
+            margin-top: 20px;
+            font-size: 18px;
+        }
+    </style>
+</head>
+<body>
+    <div class="spinner"></div>
+    <div class="text">Sedang memuat dokumen... Mohon tunggu.</div>
+
+    <script>
+        const fileId = "{{ file_id }}";
+        const step = "{{ step }}";
+
+        // 👇 Panggil endpoint /view/<step>/<file_id> untuk mulai unduh
+        fetch(`/view/${step}/${fileId}`)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error("Gagal memulai pengunduhan file");
+                }
+                console.log("✅ Memulai proses unduhan file...");
+                checkReady();  // lanjutkan polling
+            })
+            .catch(error => {
+                console.error("❌ Gagal fetch view file:", error);
+            });
+
+        // 🔁 Polling ke /check_ready/<file_id> tiap 1 detik
+        function checkReady() {
+            fetch(`/check_ready/${fileId}`)
+                .then(res => res.json())
+                .then(data => {
+                    console.log(`✅ Checking if ${fileId} is ready...`, data.ready);
+                    if (data.ready) {
+                        window.location.href = `/view/${step}/${fileId}`;
+                    } else {
+                        setTimeout(checkReady, 1000);
+                    }
+                });
+        }
+    </script>
+</body>
+</html>

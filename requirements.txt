@@ -1,0 +1,10 @@
+flask
+google-api-python-client
+google-auth
+google-auth-httplib2
+google-auth-oauthlib
+pillow
+python-dotenv
+PyMuPDF
+pypandoc
+docx2pdf

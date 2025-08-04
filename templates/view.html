@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <title>Preview & Tanda Tangan</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f9f9f9;
+        }
+        h2, h3 {
+            color: #333;
+        }
+        iframe {
+            width: 100%;
+            height: 600px;
+            border: 1px solid #ccc;
+            margin-bottom: 30px;
+            border-radius: 4px;
+        }
+        .signature-area {
+            margin-top: 20px;
+        }
+        canvas {
+            border: 1px solid #444;
+            border-radius: 4px;
+            display: block;
+            margin-bottom: 10px;
+        }
+        .btn {
+            padding: 10px 20px;
+            margin-right: 10px;
+            border: none;
+            border-radius: 5px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .btn-save {
+            background-color: #4CAF50;
+            color: white;
+        }
+        .btn-clear {
+            background-color: #f44336;
+            color: white;
+        }
+        .btn:hover {
+            opacity: 0.9;
+        }
+        .option-box {
+            background: #fff;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+        .group-title {
+            font-weight: bold;
+            margin-top: 10px;
+            margin-bottom: 5px;
+            color: #222;
+        }
+        .radio-group label {
+            margin-right: 15px;
+        }
+        select {
+            padding: 5px;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>Preview Dokumen</h2>
+    <iframe src="{{ url_for('serve_pdf', step=folder, file_id=file_id) }}"></iframe>
+
+    <div class="signature-area">
+        <form method="POST" action="{{ url_for('save_signature') }}">
+            <input type="hidden" name="file_id" value="{{ file_id }}">
+            <input type="hidden" name="folder" value="{{ folder }}">
+            <input type="hidden" name="signature" id="signature">
+
+            <!-- ✅ Pilihan prefix + bulan/tahun HANYA untuk folder 01 -->
+            {% if folder == "01" %}
+            <h3>Pilih Jenis Pengajuan & Periode:</h3>
+
+            <div style="margin-bottom: 15px;">
+                <label><strong>Grup Rabat:</strong></label><br>
+                <label><input type="radio" name="prefix" value="SR" required> SR</label>
+                <label><input type="radio" name="prefix" value="MR"> MR</label>
+                <label><input type="radio" name="prefix" value="GR"> GR</label>
+                <br><br>
+                <label><strong>Grup PRS:</strong></label><br>
+                <label><input type="radio" name="prefix" value="SP"> SP</label>
+                <label><input type="radio" name="prefix" value="MP"> MP</label>
+                <label><input type="radio" name="prefix" value="GP"> GP</label>
+            </div>
+
+            <div style="margin-bottom: 15px;">
+                <label for="bulan"><strong>Pengajuan akan di Realisasi pada Bulan:</strong></label>
+                <select name="bulan" id="bulan" required>
+                    {% for num, bulan in [('01','Januari'),('02','Februari'),('03','Maret'),
+                                        ('04','April'),('05','Mei'),('06','Juni'),
+                                        ('07','Juli'),('08','Agustus'),('09','September'),
+                                        ('10','Oktober'),('11','November'),('12','Desember')] %}
+                        <option value="{{ num }}">{{ bulan }}</option>
+                    {% endfor %}
+                </select>
+
+                <label for="tahun"><strong>Tahun:</strong></label>
+                <select name="tahun" id="tahun" required>
+                    {% for y in range(2023, 2031) %}
+                        <option value="{{ y }}">{{ y }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
+            <!-- ✅ END tambahan -->
+
+            <h3>Silakan Tanda Tangan:</h3>
+            <canvas id="signature-pad" width="400" height="150"></canvas>
+
+            <button type="button" class="btn btn-clear" id="clear">Bersihkan</button>
+            <button type="submit" class="btn btn-save" onclick="return saveSignature()">Simpan Tanda Tangan</button>
+        </form>
+    </div>
+
+    <script src="{{ url_for('static', filename='signature_pad.min.js') }}"></script>
+    <script>
+        const canvas = document.getElementById('signature-pad');
+        const signaturePad = new SignaturePad(canvas);
+        const clearBtn = document.getElementById('clear');
+        const signatureInput = document.getElementById('signature');
+
+        clearBtn.addEventListener('click', function () {
+            signaturePad.clear();
+        });
+
+        function saveSignature() {
+            if (signaturePad.isEmpty()) {
+                alert("Silakan tanda tangan terlebih dahulu.");
+                return false;
+            }
+            signatureInput.value = signaturePad.toDataURL();
+
+            {% if folder == "01" %}
+            // ✅ Validasi jika folder 01, pastikan prefix dipilih
+            const prefixSelected = document.querySelector('input[name="prefix"]:checked');
+            if (!prefixSelected) {
+                alert("Pilih prefix (SR/MR/GR/SP/MP/GP) dulu sebelum menyimpan!");
+                return false;
+            }
+            {% endif %}
+
+            return true;
+        }
+    </script>
+
+</body>
+</html>

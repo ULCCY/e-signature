@@ -1,0 +1,13 @@
+credentials.json
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+db.sqlite3
+instance/
+.webassets-cache
+.pytest_cache/
+*.log
+*.bak
