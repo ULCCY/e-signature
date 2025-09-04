@@ -106,8 +106,8 @@ def index():
     return render_template("index.html", group_data=group_data)
 
 
-@app.route("/folder/<folder_name>", methods=["GET", "POST"])
-def view_folder(folder_name):
+@app.route("/folder/<folder_id>", methods=["GET", "POST"])
+def view_folder(folder_id):
     if request.method == "POST":
         password = request.form.get("password")
         if FOLDER_PASSWORDS.get(folder_name) == password:
