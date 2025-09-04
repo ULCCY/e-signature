@@ -55,16 +55,16 @@
         <div class="group">
             <h2>{{ group }}</h2>
             <div class="folder-boxes">
-                {% for key, f in folders.items() if f.group == group %}
-                    <div class="folder {% if f.files %}green{% else %}gray{% endif %}">
+                {% for f in group_data.get(group, []) %}
+                    <div class="folder {% if f.count > 0 %}green{% else %}gray{% endif %}">
                         <h2>{{ f.name }}</h2>
-                        {% if f.files %}
+                        {% if f.count > 0 %}
                             <ul>
-                                {% for file in f.files %}
-                                    <li>
-                                        <a href="{{ url_for('access_file', folder_id=key, file_id=file.id) }}">{{ file.name }}</a>
-                                    </li>
-                                {% endfor %}
+                                <li>
+                                    <a href="{{ url_for('view_folder', folder_id=f.id) }}">
+                                        Buka Folder ({{ f.count }} file)
+                                    </a>
+                                </li>
                             </ul>
                         {% else %}
                             <p><i>Tidak ada dokumen</i></p>
