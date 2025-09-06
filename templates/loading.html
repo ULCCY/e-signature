@@ -31,7 +31,7 @@
 
     <script>
         const fileId = "{{ file_id }}";
-        const folderName = "{{ folder }}"; // Menggunakan "folder" yang telah diperbarui
+        const folderName = "{{ folder }}"; 
         
         // Memulai proses unduhan di sisi server
         fetch(`/start_download/${fileId}`)
@@ -44,8 +44,17 @@
             })
             .catch(error => {
                 console.error("❌ Gagal fetch start download:", error);
+                
+                // Mengubah teks yang ditampilkan
                 document.querySelector('.text-xl').textContent = "Terjadi Kesalahan.";
                 document.querySelector('.text-sm').textContent = "Silakan coba lagi.";
+                
+                // Menambahkan tombol "Coba Lagi"
+                const retryBtn = document.createElement('button');
+                retryBtn.textContent = 'Coba Lagi';
+                retryBtn.className = 'mt-4 px-4 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 transition duration-200';
+                retryBtn.onclick = () => window.location.reload();
+                document.body.appendChild(retryBtn);
             });
 
         // Polling ke /check_ready/<file_id> tiap 1 detik
@@ -62,6 +71,7 @@
                 })
                 .catch(error => {
                     console.error("❌ Gagal polling check ready:", error);
+                    // Tidak ada tindakan lebih lanjut, karena tombol "Coba Lagi" sudah disediakan di awal
                 });
         }
     </script>

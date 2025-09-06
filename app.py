@@ -2,7 +2,7 @@ import os
 import json
 import io
 import base64
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_from_directory
 from dotenv import load_dotenv
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -11,6 +11,7 @@ from reportlab.pdfgen import canvas as pdf_canvas
 from reportlab.lib.pagesizes import A4
 from PyPDF2 import PdfReader, PdfWriter
 import threading
+import mimetypes
 
 # Muat variabel dari file .env
 load_dotenv()
@@ -102,10 +103,9 @@ def add_signature_to_pdf(input_pdf_path, signature_data_url, keyword):
         
         output = PdfWriter()
 
-        # Gabungkan tanda tangan ke PDF
+        # Gabungkan tanda tangan ke halaman terakhir PDF
         for i in range(len(input_pdf.pages)):
             page = input_pdf.pages[i]
-            # Tambahkan tanda tangan ke halaman terakhir
             if i == len(input_pdf.pages) - 1:
                 page.merge_page(sig_pdf.pages[0])
             output.add_page(page)
@@ -187,7 +187,6 @@ def start_download(file_id):
     global DOWNLOAD_STATUS
     DOWNLOAD_STATUS[file_id] = "downloading"
     
-    # Gunakan thread untuk menjalankan unduhan tanpa memblokir
     download_thread = threading.Thread(target=download_file_thread, args=(file_id,))
     download_thread.start()
     
@@ -221,6 +220,13 @@ def check_ready(file_id):
     status = DOWNLOAD_STATUS.get(file_id, "pending")
     return jsonify({"ready": status == "ready", "error": status == "error"})
 
+@app.route("/download_pdf/<file_id>")
+def download_pdf(file_id):
+    """Mengirim file PDF yang sudah diunduh ke browser untuk pratinjau."""
+    file_metadata = drive_service.files().get(fileId=file_id).execute()
+    filename = file_metadata.get("name")
+    return send_from_directory(TEMP_DIR, filename, mimetype=mimetypes.guess_type(filename)[0])
+
 @app.route("/preview_file/<file_id>")
 def preview_file(file_id):
     """Menampilkan halaman pratinjau dan tanda tangan."""
@@ -228,9 +234,10 @@ def preview_file(file_id):
     if not file:
         return "File tidak ditemukan.", 404
     
-    folder_name = get_folder_name_by_id(file.get('parents')[0])
+    folder_id = file.get('parents')[0]
+    folder_name = get_folder_name_by_id(folder_id)
     
-    return render_template("folder.html", file_id=file.get('id'), folder=folder_name)
+    return render_template("preview.html", file_id=file.get('id'), folder=folder_name, folder_id=folder_id)
 
 def get_folder_name_by_id(folder_id):
     """Mencari nama folder berdasarkan ID."""
@@ -257,7 +264,6 @@ def save_signature():
         
         temp_pdf_path = os.path.join(TEMP_DIR, filename)
         
-        # Tambahkan tanda tangan
         signed_path = add_signature_to_pdf(temp_pdf_path, signature_data, folder_name)
         if not signed_path:
             return "Gagal menambahkan tanda tangan.", 500

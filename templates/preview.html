@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="id">
+<html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -59,24 +59,32 @@
     <div id="status-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center modal-overlay">
         <div class="bg-white p-6 rounded-xl shadow-xl max-w-sm w-full text-center">
             <p id="modal-message" class="text-gray-800 font-medium"></p>
-            <div id="modal-spinner" class="mt-4 animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500 mx-auto"></div>
+            <div id="modal-spinner" class="mt-4 animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500 mx-auto hidden"></div>
+            <input id="filename-input" type="text" placeholder="Masukkan nama file baru (opsional)" class="w-full mt-4 px-3 py-2 border rounded-lg hidden">
+            <div id="modal-buttons" class="mt-4 hidden space-x-2">
+                <button id="confirm-button" class="bg-green-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-green-700">OK</button>
+                <button id="cancel-button" class="bg-gray-400 text-white font-semibold py-2 px-4 rounded-lg hover:bg-gray-500">Batal</button>
+            </div>
         </div>
     </div>
 
     <script>
         const canvas = document.getElementById('signature-pad');
         const clearButton = document.getElementById('clear-button');
-        const saveButton = document.getElementById('save-button');
+        const saveButton = document = document.getElementById('save-button');
         const statusModal = document.getElementById('status-modal');
         const modalMessage = document.getElementById('modal-message');
         const modalSpinner = document.getElementById('modal-spinner');
+        const filenameInput = document.getElementById('filename-input');
+        const modalButtons = document.getElementById('modal-buttons');
+        const confirmButton = document.getElementById('confirm-button');
+        const cancelButton = document.getElementById('cancel-button');
 
         const ctx = canvas.getContext('2d');
         let isDrawing = false;
         let lastX = 0;
         let lastY = 0;
 
-        // Set ukuran canvas
         function resizeCanvas() {
             canvas.width = canvas.offsetWidth;
             canvas.height = canvas.offsetHeight;
@@ -107,7 +115,6 @@
         canvas.addEventListener('mouseup', () => isDrawing = false);
         canvas.addEventListener('mouseout', () => isDrawing = false);
 
-        // Tambahkan event listener untuk sentuhan pada perangkat mobile
         canvas.addEventListener('touchstart', (e) => {
             e.preventDefault();
             const touch = e.touches[0];
@@ -137,13 +144,17 @@
             ctx.clearRect(0, 0, canvas.width, canvas.height);
         });
 
-        saveButton.addEventListener('click', async () => {
+        saveButton.addEventListener('click', () => {
+            showModal("Masukkan nama file baru (opsional):", false, true, true);
+        });
+
+        confirmButton.addEventListener('click', async () => {
             const signatureData = canvas.toDataURL('image/png');
             const fileId = "{{ file_id }}";
             const folderName = "{{ folder }}";
-            const newFilename = prompt("Masukkan nama file baru (opsional):");
+            const newFilename = filenameInput.value || null;
 
-            showModal("Menyimpan tanda tangan dan memproses dokumen...", true);
+            showModal("Menyimpan tanda tangan dan memproses dokumen...", true, false, false);
 
             try {
                 const response = await fetch('/save_signature', {
@@ -158,25 +169,27 @@
                 });
 
                 if (response.ok) {
-                    showModal("Dokumen berhasil ditandatangani dan dipindahkan.", false);
+                    showModal("Dokumen berhasil ditandatangani dan dipindahkan.", false, false, false);
                     setTimeout(() => window.location.href = `/folder/{{ folder_id }}`, 2000);
                 } else {
                     const errorText = await response.text();
-                    showModal("Gagal menyimpan tanda tangan: " + errorText, false);
+                    showModal("Gagal menyimpan tanda tangan: " + errorText, false, false, false);
                 }
             } catch (error) {
-                showModal("Terjadi kesalahan jaringan: " + error.message, false);
+                showModal("Terjadi kesalahan jaringan: " + error.message, false, false, false);
             }
         });
 
-        function showModal(message, showSpinner) {
+        cancelButton.addEventListener('click', () => {
+            statusModal.classList.add('hidden');
+        });
+
+        function showModal(message, showSpinner, showInput, showButtons) {
             modalMessage.textContent = message;
             statusModal.classList.remove('hidden');
-            if (showSpinner) {
-                modalSpinner.classList.remove('hidden');
-            } else {
-                modalSpinner.classList.add('hidden');
-            }
+            modalSpinner.classList.toggle('hidden', !showSpinner);
+            filenameInput.classList.toggle('hidden', !showInput);
+            modalButtons.classList.toggle('hidden', !showButtons);
         }
     </script>
 </body>
