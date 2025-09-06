@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pratinjau Dokumen & Tanda Tangan</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        canvas {
+            border: 1px solid #d1d5db;
+            background-color: #f9fafb;
+            touch-action: none;
+        }
+        .signature-controls button {
+            @apply px-4 py-2 rounded-lg text-sm font-semibold transition-colors duration-200;
+        }
+        .modal-overlay {
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col items-center p-4 sm:p-8">
+
+    <div class="w-full max-w-4xl bg-white rounded-xl shadow-lg p-6 sm:p-8 flex flex-col items-center">
+        <h2 class="text-2xl font-semibold text-gray-800 mb-6 text-center">
+            Pratinjau Dokumen
+        </h2>
+        
+        <!-- Area PDF Viewer -->
+        <div class="w-full h-96 sm:h-[600px] bg-gray-200 rounded-lg overflow-hidden mb-6 shadow-inner">
+            <iframe id="pdf-viewer" class="w-full h-full" src="/download_pdf/{{ file_id }}"></iframe>
+        </div>
+
+        <!-- Area Tanda Tangan -->
+        <div class="w-full mb-6">
+            <h3 class="text-lg font-medium text-gray-700 mb-2">Tanda Tangan Digital</h3>
+            <canvas id="signature-pad" class="w-full rounded-lg cursor-crosshair"></canvas>
+            <div class="signature-controls flex justify-center space-x-4 mt-4">
+                <button id="clear-button" class="bg-red-500 text-white hover:bg-red-600">
+                    Hapus
+                </button>
+                <button id="save-button" class="bg-green-600 text-white hover:bg-green-700">
+                    Simpan & Lanjutkan
+                </button>
+            </div>
+        </div>
+
+        <div class="w-full text-center">
+            <a href="/folder/{{ folder_id }}" class="text-blue-600 hover:text-blue-800 transition-colors text-sm font-medium">
+                Kembali ke Daftar File
+            </a>
+        </div>
+    </div>
+
+    <!-- Modal Status -->
+    <div id="status-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center modal-overlay">
+        <div class="bg-white p-6 rounded-xl shadow-xl max-w-sm w-full text-center">
+            <p id="modal-message" class="text-gray-800 font-medium"></p>
+            <div id="modal-spinner" class="mt-4 animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500 mx-auto"></div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('signature-pad');
+        const clearButton = document.getElementById('clear-button');
+        const saveButton = document.getElementById('save-button');
+        const statusModal = document.getElementById('status-modal');
+        const modalMessage = document.getElementById('modal-message');
+        const modalSpinner = document.getElementById('modal-spinner');
+
+        const ctx = canvas.getContext('2d');
+        let isDrawing = false;
+        let lastX = 0;
+        let lastY = 0;
+
+        // Set ukuran canvas
+        function resizeCanvas() {
+            canvas.width = canvas.offsetWidth;
+            canvas.height = canvas.offsetHeight;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        ctx.lineWidth = 3;
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = '#000000';
+
+        function draw(e) {
+            if (!isDrawing) return;
+            ctx.beginPath();
+            ctx.moveTo(lastX, lastY);
+            ctx.lineTo(e.offsetX, e.offsetY);
+            ctx.stroke();
+            [lastX, lastY] = [e.offsetX, e.offsetY];
+        }
+
+        canvas.addEventListener('mousedown', (e) => {
+            isDrawing = true;
+            [lastX, lastY] = [e.offsetX, e.offsetY];
+        });
+        canvas.addEventListener('mousemove', draw);
+        canvas.addEventListener('mouseup', () => isDrawing = false);
+        canvas.addEventListener('mouseout', () => isDrawing = false);
+
+        // Tambahkan event listener untuk sentuhan pada perangkat mobile
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            const rect = canvas.getBoundingClientRect();
+            const x = touch.clientX - rect.left;
+            const y = touch.clientY - rect.top;
+            isDrawing = true;
+            [lastX, lastY] = [x, y];
+        }, false);
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            if (!isDrawing) return;
+            const touch = e.touches[0];
+            const rect = canvas.getBoundingClientRect();
+            const x = touch.clientX - rect.left;
+            const y = touch.clientY - rect.top;
+            ctx.beginPath();
+            ctx.moveTo(lastX, lastY);
+            ctx.lineTo(x, y);
+            ctx.stroke();
+            [lastX, lastY] = [x, y];
+        }, false);
+        canvas.addEventListener('touchend', () => isDrawing = false, false);
+        canvas.addEventListener('touchcancel', () => isDrawing = false, false);
+
+        clearButton.addEventListener('click', () => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        });
+
+        saveButton.addEventListener('click', async () => {
+            const signatureData = canvas.toDataURL('image/png');
+            const fileId = "{{ file_id }}";
+            const folderName = "{{ folder }}";
+            const newFilename = prompt("Masukkan nama file baru (opsional):");
+
+            showModal("Menyimpan tanda tangan dan memproses dokumen...", true);
+
+            try {
+                const response = await fetch('/save_signature', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        file_id: fileId,
+                        folder: folderName,
+                        signature: signatureData,
+                        new_filename: newFilename
+                    })
+                });
+
+                if (response.ok) {
+                    showModal("Dokumen berhasil ditandatangani dan dipindahkan.", false);
+                    setTimeout(() => window.location.href = `/folder/{{ folder_id }}`, 2000);
+                } else {
+                    const errorText = await response.text();
+                    showModal("Gagal menyimpan tanda tangan: " + errorText, false);
+                }
+            } catch (error) {
+                showModal("Terjadi kesalahan jaringan: " + error.message, false);
+            }
+        });
+
+        function showModal(message, showSpinner) {
+            modalMessage.textContent = message;
+            statusModal.classList.remove('hidden');
+            if (showSpinner) {
+                modalSpinner.classList.remove('hidden');
+            } else {
+                modalSpinner.classList.add('hidden');
+            }
+        }
+    </script>
+</body>
+</html>
