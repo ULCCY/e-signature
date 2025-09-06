@@ -1,66 +1,70 @@
 <!DOCTYPE html>
-<html>
+<html lang="id">
 <head>
-    <title>Loading PDF...</title>
+    <meta charset="UTF-8">
+    <title>Sedang Memuat Dokumen...</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body {
-            font-family: sans-serif;
-            text-align: center;
-            padding-top: 50px;
+            font-family: 'Inter', sans-serif;
         }
         .spinner {
-            border: 8px solid #f3f3f3;
-            border-top: 8px solid #3498db;
-            border-radius: 50%;
-            width: 80px;
-            height: 80px;
+            border-top-color: #3b82f6; /* Tailwind blue-500 */
+            -webkit-animation: spin 1s linear infinite;
             animation: spin 1s linear infinite;
-            margin: auto;
+        }
+        @-webkit-keyframes spin {
+            0% { -webkit-transform: rotate(0deg); }
+            100% { -webkit-transform: rotate(360deg); }
         }
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
-        .text {
-            margin-top: 20px;
-            font-size: 18px;
-        }
     </style>
 </head>
-<body>
-    <div class="spinner"></div>
-    <div class="text">Sedang memuat dokumen... Mohon tunggu.</div>
+<body class="bg-gray-100 flex flex-col items-center justify-center min-h-screen p-4">
+
+    <div class="spinner border-8 border-gray-200 h-20 w-20 rounded-full mb-6"></div>
+    <div class="text-xl font-semibold text-gray-700">Sedang memuat dokumen...</div>
+    <div class="text-sm text-gray-500 mt-2">Mohon tunggu sebentar. Proses ini mungkin memakan waktu beberapa detik.</div>
 
     <script>
         const fileId = "{{ file_id }}";
-        const step = "{{ step }}";
-
-        // 👇 Panggil endpoint /view/<step>/<file_id> untuk mulai unduh
-        fetch(`/view/${step}/${fileId}`)
+        const folderName = "{{ folder }}"; // Menggunakan "folder" yang telah diperbarui
+        
+        // Memulai proses unduhan di sisi server
+        fetch(`/start_download/${fileId}`)
             .then(response => {
                 if (!response.ok) {
-                    throw new Error("Gagal memulai pengunduhan file");
+                    throw new Error("Gagal memulai pengunduhan file.");
                 }
                 console.log("✅ Memulai proses unduhan file...");
-                checkReady();  // lanjutkan polling
+                checkReady(); // Lanjutkan polling
             })
             .catch(error => {
-                console.error("❌ Gagal fetch view file:", error);
+                console.error("❌ Gagal fetch start download:", error);
+                document.querySelector('.text-xl').textContent = "Terjadi Kesalahan.";
+                document.querySelector('.text-sm').textContent = "Silakan coba lagi.";
             });
 
-        // 🔁 Polling ke /check_ready/<file_id> tiap 1 detik
+        // Polling ke /check_ready/<file_id> tiap 1 detik
         function checkReady() {
             fetch(`/check_ready/${fileId}`)
                 .then(res => res.json())
                 .then(data => {
-                    console.log(`✅ Checking if ${fileId} is ready...`, data.ready);
                     if (data.ready) {
-                        window.location.href = `/view/${step}/${fileId}`;
+                        console.log("✅ Dokumen siap, mengalihkan...");
+                        window.location.href = `/preview_file/${fileId}?folder=${folderName}`;
                     } else {
-                        setTimeout(checkReady, 1000);
+                        setTimeout(checkReady, 1000); // Polling lagi setelah 1 detik
                     }
+                })
+                .catch(error => {
+                    console.error("❌ Gagal polling check ready:", error);
                 });
         }
     </script>
+
 </body>
 </html>

@@ -8,34 +8,43 @@
             font-family: 'Segoe UI', sans-serif;
             margin: 0;
             padding: 20px;
-            background: #f9f9f9;
+            background: #f4f6f9;
+            color: #333;
         }
         h2, h3 {
-            color: #333;
+            color: #222;
+            margin-bottom: 10px;
         }
         iframe {
             width: 100%;
             height: 600px;
-            border: 1px solid #ccc;
-            margin-bottom: 30px;
-            border-radius: 4px;
+            border: 1px solid #ddd;
+            margin-bottom: 25px;
+            border-radius: 6px;
+            background: #fff;
         }
         .signature-area {
-            margin-top: 20px;
+            background: #fff;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.05);
         }
         canvas {
-            border: 1px solid #444;
-            border-radius: 4px;
+            border: 2px dashed #666;
+            border-radius: 6px;
             display: block;
-            margin-bottom: 10px;
+            margin: 15px 0;
+            background: #fafafa;
         }
         .btn {
             padding: 10px 20px;
             margin-right: 10px;
             border: none;
-            border-radius: 5px;
+            border-radius: 6px;
             font-weight: bold;
             cursor: pointer;
+            transition: 0.2s ease;
         }
         .btn-save {
             background-color: #4CAF50;
@@ -46,64 +55,77 @@
             color: white;
         }
         .btn:hover {
-            opacity: 0.9;
+            transform: translateY(-2px);
+            opacity: 0.95;
         }
         .option-box {
-            background: #fff;
+            background: #fdfdfd;
             padding: 15px;
             border: 1px solid #ddd;
             border-radius: 6px;
             margin-bottom: 20px;
         }
-        .group-title {
-            font-weight: bold;
-            margin-top: 10px;
-            margin-bottom: 5px;
-            color: #222;
+        .option-box h3 {
+            margin-top: 0;
+        }
+        .radio-group {
+            margin: 8px 0 15px;
         }
         .radio-group label {
             margin-right: 15px;
+            font-weight: 500;
+            cursor: pointer;
         }
         select {
-            padding: 5px;
-            margin-top: 5px;
+            padding: 8px;
+            margin-left: 10px;
+            border: 1px solid #bbb;
+            border-radius: 4px;
+        }
+        /* Style untuk tombol loading */
+        .btn-save:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
         }
     </style>
 </head>
 <body>
 
     <h2>Preview Dokumen</h2>
-    <iframe src="{{ url_for('serve_pdf', step=folder, file_id=file_id) }}"></iframe>
+    <iframe src="{{ url_for('preview_file', file_id=file_id) }}"></iframe>
 
     <div class="signature-area">
-        <form method="POST" action="{{ url_for('save_signature') }}">
-            <input type="hidden" name="file_id" value="{{ file_id }}">
-            <input type="hidden" name="folder" value="{{ folder }}">
-            <input type="hidden" name="signature" id="signature">
+        <h3>Silakan Tanda Tangan:</h3>
+        <canvas id="signature-pad" width="400" height="150"></canvas>
 
-            <!-- ✅ Pilihan prefix + bulan/tahun HANYA untuk folder 01 -->
-            {% if folder == "01" %}
+        <button type="button" class="btn btn-clear" id="clear">Bersihkan</button>
+        <button type="button" class="btn btn-save" id="saveBtn">Simpan Tanda Tangan</button>
+
+        {% if folder == "01 - Pengajuan Awal" %}
+        <div class="option-box">
             <h3>Pilih Jenis Pengajuan & Periode:</h3>
 
-            <div style="margin-bottom: 15px;">
-                <label><strong>Grup Rabat:</strong></label><br>
+            <div class="radio-group">
+                <strong>Grup Rabat:</strong><br>
                 <label><input type="radio" name="prefix" value="SR" required> SR</label>
                 <label><input type="radio" name="prefix" value="MR"> MR</label>
                 <label><input type="radio" name="prefix" value="GR"> GR</label>
-                <br><br>
-                <label><strong>Grup PRS:</strong></label><br>
+            </div>
+
+            <div class="radio-group">
+                <strong>Grup PRS:</strong><br>
                 <label><input type="radio" name="prefix" value="SP"> SP</label>
                 <label><input type="radio" name="prefix" value="MP"> MP</label>
                 <label><input type="radio" name="prefix" value="GP"> GP</label>
             </div>
 
-            <div style="margin-bottom: 15px;">
-                <label for="bulan"><strong>Pengajuan akan di Realisasi pada Bulan:</strong></label>
+            <div>
+                <label><strong>Realisasi Bulan:</strong></label>
                 <select name="bulan" id="bulan" required>
                     {% for num, bulan in [('01','Januari'),('02','Februari'),('03','Maret'),
-                                        ('04','April'),('05','Mei'),('06','Juni'),
-                                        ('07','Juli'),('08','Agustus'),('09','September'),
-                                        ('10','Oktober'),('11','November'),('12','Desember')] %}
+                                          ('04','April'),('05','Mei'),('06','Juni'),
+                                          ('07','Juli'),('08','Agustus'),('09','September'),
+                                          ('10','Oktober'),('11','November'),('12','Desember')] %}
                         <option value="{{ num }}">{{ bulan }}</option>
                     {% endfor %}
                 </select>
@@ -115,47 +137,77 @@
                     {% endfor %}
                 </select>
             </div>
-            {% endif %}
-            <!-- ✅ END tambahan -->
+        </div>
+        {% endif %}
 
-            <h3>Silakan Tanda Tangan:</h3>
-            <canvas id="signature-pad" width="400" height="150"></canvas>
-
-            <button type="button" class="btn btn-clear" id="clear">Bersihkan</button>
-            <button type="submit" class="btn btn-save" onclick="return saveSignature()">Simpan Tanda Tangan</button>
-        </form>
     </div>
 
-    <script src="{{ url_for('static', filename='signature_pad.min.js') }}"></script>
+    <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
     <script>
         const canvas = document.getElementById('signature-pad');
         const signaturePad = new SignaturePad(canvas);
         const clearBtn = document.getElementById('clear');
-        const signatureInput = document.getElementById('signature');
+        const saveBtn = document.getElementById('saveBtn');
 
         clearBtn.addEventListener('click', function () {
             signaturePad.clear();
         });
 
-        function saveSignature() {
+        saveBtn.addEventListener('click', function () {
             if (signaturePad.isEmpty()) {
                 alert("Silakan tanda tangan terlebih dahulu.");
-                return false;
+                return;
             }
-            signatureInput.value = signaturePad.toDataURL();
 
-            {% if folder == "01" %}
-            // ✅ Validasi jika folder 01, pastikan prefix dipilih
-            const prefixSelected = document.querySelector('input[name="prefix"]:checked');
-            if (!prefixSelected) {
-                alert("Pilih prefix (SR/MR/GR/SP/MP/GP) dulu sebelum menyimpan!");
-                return false;
-            }
+            // Menonaktifkan tombol dan mengubah teks
+            saveBtn.disabled = true;
+            saveBtn.textContent = "Sedang Memproses...";
+
+            const signatureData = signaturePad.toDataURL();
+            const fileId = "{{ file_id }}";
+            const folderName = "{{ folder }}";
+            let newFilename = null;
+
+            // Logika untuk folder "01 - Pengajuan Awal"
+            {% if folder == "01 - Pengajuan Awal" %}
+                const prefixSelected = document.querySelector('input[name="prefix"]:checked');
+                if (!prefixSelected) {
+                    alert("Pilih jenis pengajuan (SR/MR/GR/SP/MP/GP) terlebih dahulu!");
+                    saveBtn.disabled = false;
+                    saveBtn.textContent = "Simpan Tanda Tangan";
+                    return;
+                }
+                const prefix = prefixSelected.value;
+                const bulan = document.getElementById('bulan').value;
+                const tahun = document.getElementById('tahun').value;
+                newFilename = `${prefix} ${bulan}${tahun}.pdf`;
             {% endif %}
 
-            return true;
-        }
+            // Kirim data ke backend
+            fetch("{{ url_for('save_signature') }}", {
+                method: "POST",
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    file_id: fileId,
+                    folder: folderName,
+                    signature: signatureData,
+                    new_filename: newFilename
+                })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Terjadi kesalahan saat menyimpan tanda tangan.');
+                }
+                window.location.href = "{{ url_for('index') }}";
+            })
+            .catch(error => {
+                alert(error.message);
+                saveBtn.disabled = false;
+                saveBtn.textContent = "Simpan Tanda Tangan";
+            });
+        });
     </script>
-
 </body>
 </html>
