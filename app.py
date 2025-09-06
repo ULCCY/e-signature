@@ -153,6 +153,10 @@ def index():
 @app.route("/folder/<folder_id>", methods=["GET", "POST"])
 def view_folder(folder_id):
     """Menampilkan isi folder, dengan otentikasi kata sandi."""
+    folder_name = get_folder_name_by_id(folder_id)
+    if not folder_name:
+        return "Folder tidak ditemukan.", 404
+
     if request.method == "POST":
         password = request.form.get("password")
         if FOLDER_PASSWORDS.get(folder_id) == password:
@@ -160,10 +164,10 @@ def view_folder(folder_id):
             return redirect(url_for("view_folder", folder_id=folder_id))
         
         error = "Password yang Anda masukkan salah."
-        return render_template("password.html", folder_id=folder_id, error=error)
+        return render_template("password.html", folder_id=folder_id, folder_name=folder_name, error=error)
 
     if not session.get(folder_id):
-        return render_template("password.html", folder_id=folder_id)
+        return render_template("password.html", folder_id=folder_id, folder_name=folder_name)
 
     files = get_files(folder_id)
     return render_template("folder.html", files=files, folder_id=folder_id)
