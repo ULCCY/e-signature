@@ -160,10 +160,10 @@ def view_folder(folder_id):
             return redirect(url_for("view_folder", folder_id=folder_id))
         
         error = "Password yang Anda masukkan salah."
-        return render_template("login.html", folder_id=folder_id, error=error)
+        return render_template("password.html", folder_id=folder_id, error=error)
 
     if not session.get(folder_id):
-        return render_template("login.html", folder_id=folder_id)
+        return render_template("password.html", folder_id=folder_id)
 
     files = get_files(folder_id)
     return render_template("folder.html", files=files, folder_id=folder_id)
@@ -174,7 +174,7 @@ def load_file(file_id):
     file = get_file_by_id(file_id)
     if not file:
         return "File tidak ditemukan.", 404
-    folder_name = file.get('parents', [''])[0]
+    folder_name = get_folder_name_by_id(file.get('parents')[0])
     return render_template("loading.html", file_id=file_id, folder=folder_name)
 
 @app.route("/start_download/<file_id>")
