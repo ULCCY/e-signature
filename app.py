@@ -12,7 +12,6 @@ import json
 import threading
 from werkzeug.utils import secure_filename
 from datetime import datetime
-from io import BytesIO
 
 # Muat variabel dari file .env
 load_dotenv()
@@ -124,6 +123,21 @@ def add_signature_to_pdf(input_pdf_path, signature_data_url, keyword):
 # ==============================================================================
 #                                ROUTING APLIKASI
 # ==============================================================================
+@app.route("/login", methods=["POST"])
+def login():
+    folder_id = request.form.get("folder_id")
+    password = request.form.get("password")
+
+    if FOLDER_PASSWORDS.get(folder_id) == password:
+        session["logged_in"] = True
+        session["folder_id"] = folder_id
+        flash("Login berhasil!", "success")
+    else:
+        session["logged_in"] = False
+        flash("Password salah. Silakan coba lagi.", "error")
+    
+    # Alihkan ke halaman folder
+    return redirect(url_for("view_folder", folder_id=folder_id))
 
 @app.route("/")
 def index():
@@ -152,25 +166,17 @@ def index():
 
 @app.route("/folder/<folder_id>", methods=["GET", "POST"])
 def view_folder(folder_id):
-    """Menampilkan isi folder, dengan otentikasi kata sandi."""
+    """Menampilkan isi folder dengan otentikasi sesi yang diperbarui."""
     folder_name = get_folder_name_by_id(folder_id)
     if not folder_name:
         return "Folder tidak ditemukan.", 404
 
-    if request.method == "POST":
-        password = request.form.get("password")
-        if FOLDER_PASSWORDS.get(folder_id) == password:
-            session[folder_id] = True
-            return redirect(url_for("view_folder", folder_id=folder_id))
-        
-        error = "Password yang Anda masukkan salah."
-        return render_template("password.html", folder_id=folder_id, folder_name=folder_name, error=error)
-
-    if not session.get(folder_id):
+    # Logika otentikasi yang konsisten
+    if not session.get("logged_in") or session.get("folder_id") != folder_id:
+        # Jika belum login atau salah folder, arahkan ke halaman password
         return render_template("password.html", folder_id=folder_id, folder_name=folder_name)
 
     files = get_files(folder_id)
-    # Tentukan apakah ini folder '01 - Pengajuan Awal'
     is_pengajuan_awal = folder_name == "01 - Pengajuan Awal"
     return render_template("folder.html", files=files, folder_id=folder_id, is_pengajuan_awal=is_pengajuan_awal)
 
@@ -179,9 +185,7 @@ def upload_file():
     # Ambil folder ID dari form
     target_folder_id = request.form.get("folder_id")
 
-    # Logika otentikasi
-    # Jika tidak ada sesi atau folder ID di sesi tidak cocok,
-    # redirect pengguna kembali dengan pesan error.
+    # Logika otentikasi (ini sudah benar)
     if not session.get("logged_in") or session.get("folder_id") != target_folder_id:
         flash("Silakan login kembali untuk mengunggah file.", "error")
         return redirect(url_for("view_folder", folder_id=target_folder_id))
