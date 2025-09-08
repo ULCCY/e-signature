@@ -14,11 +14,20 @@ import threading
 import mimetypes
 from datetime import datetime
 
-# Muat variabel dari file .env
+# Muat variabel dari file .env (untuk pengembangan lokal)
 load_dotenv()
+
 SECRET_KEY = os.getenv("SECRET_KEY")
-GOOGLE_SERVICE_ACCOUNT_PATH = 'service_account.json'
-# Periksa apakah FOLDERS dan FOLDER_PASSWORDS sudah dimuat
+
+# Mengambil string JSON dari variabel lingkungan
+service_account_json_string = os.getenv("GOOGLE_SERVICE_ACCOUNT")
+
+# Memeriksa apakah variabel lingkungan ada dan memuatnya
+if not service_account_json_string:
+    raise ValueError("Variabel lingkungan GOOGLE_SERVICE_ACCOUNT tidak ditemukan. Mohon atur di Render.")
+
+GOOGLE_SERVICE_ACCOUNT_JSON = json.loads(service_account_json_string)
+
 FOLDERS = json.loads(os.getenv("FOLDERS"))
 FOLDER_PASSWORDS = json.loads(os.getenv("FOLDER_PASSWORDS"))
 
@@ -35,8 +44,8 @@ DOWNLOAD_STATUS = {}
 
 def get_drive_service():
     """Menginisialisasi dan mengembalikan objek layanan Google Drive."""
-    creds = service_account.Credentials.from_service_account_file(
-        GOOGLE_SERVICE_ACCOUNT_PATH,
+    creds = service_account.Credentials.from_service_account_info(
+        GOOGLE_SERVICE_ACCOUNT_JSON,
         scopes=["https://www.googleapis.com/auth/drive"]
     )
     return build("drive", "v3", credentials=creds)
