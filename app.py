@@ -180,7 +180,7 @@ def upload_file():
     target_folder_id = request.form.get("folder_id")
     if not session.get("logged_in") or session.get("folder_id") != target_folder_id:
         flash("Silakan login kembali untuk mengunggah file.", "error")
-        return redirect(url_for("folder_page", folder_id=target_folder_id))
+        return redirect(url_for("view_folder", folder_id=target_folder_id))
     
     target_folder_id = request.form.get("folder_id")
 
@@ -189,7 +189,7 @@ def upload_file():
         uploaded_file = request.files.get("file")
         if not uploaded_file or uploaded_file.filename == "":
             flash("Tidak ada file yang dipilih.", "error")
-            return redirect(url_for("folder_page", folder_id=target_folder_id))
+            return redirect(url_for("view_folder", folder_id=target_folder_id))
 
         # Tentukan tipe MIME dan nama file
         filename = secure_filename(uploaded_file.filename)
@@ -240,7 +240,7 @@ def upload_file():
         print(f"Error saat mengunggah file: {e}")
         flash(f"Error: Gagal mengunggah file. {e}", "error")
 
-    return redirect(url_for("folder_page", folder_id=target_folder_id))
+    return redirect(url_for("view_folder", folder_id=target_folder_id))
 
 @app.route("/delete_file/<file_id>", methods=["POST"])
 def delete_file(file_id):
