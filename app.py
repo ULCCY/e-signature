@@ -218,12 +218,11 @@ def upload_file():
             
         media = MediaIoBaseUpload(uploaded_file.stream, mimetype=mime_type, resumable=True)
 
-        # Ubah panggilan .create() untuk menghapus 'supportsAllDrives'
+        # Hapus baris 'convert=is_conversion_needed'
         drive_service.files().create(
             body=file_metadata,
             media_body=media,
-            fields="id",
-            convert=is_conversion_needed
+            fields="id"
         ).execute()
 
         flash(f"File '{filename}' berhasil diunggah dan dikonversi.", "success")
