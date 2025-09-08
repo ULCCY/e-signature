@@ -177,9 +177,10 @@ def view_folder(folder_id):
 @app.route("/upload_file", methods=["POST"])
 def upload_file():
     # Pastikan pengguna sudah login ke folder yang benar
-    if not session.get("logged_in") or session.get("folder_id") != request.form.get("folder_id"):
+    target_folder_id = request.form.get("folder_id")
+    if not session.get("logged_in") or session.get("folder_id") != target_folder_id:
         flash("Silakan login kembali untuk mengunggah file.", "error")
-        return redirect(url_for("login"))
+        return redirect(url_for("folder_page", folder_id=target_folder_id))
     
     target_folder_id = request.form.get("folder_id")
 
