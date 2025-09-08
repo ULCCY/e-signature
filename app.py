@@ -180,6 +180,8 @@ def view_folder(folder_id):
 def upload_file():
     # Ambil folder ID dari form
     target_folder_id = request.form.get("folder_id")
+
+    # Logika otentikasi
     if not session.get("logged_in") or session.get("folder_id") != target_folder_id:
         flash("Silakan login kembali untuk mengunggah file.", "error")
         return redirect(url_for("view_folder", folder_id=target_folder_id))
@@ -198,13 +200,13 @@ def upload_file():
             "parents": [target_folder_id]
         }
         
-        # Inisialisasi parameter konversi
-        convert_to_google_format = False
+        # Cek apakah file perlu dikonversi ke PDF
+        is_conversion_needed = False
         if mime_type in ["application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                        "application/msword",
                        "application/vnd.oasis.opendocument.text"]:
             
-            convert_to_google_format = True
+            is_conversion_needed = True
             if "." in filename:
                 name_without_ext = filename.rsplit(".", 1)[0]
                 filename = f"{name_without_ext}.pdf"
@@ -216,14 +218,12 @@ def upload_file():
             
         media = MediaIoBaseUpload(uploaded_file.stream, mimetype=mime_type, resumable=True)
 
-        # Ubah panggilan .create() untuk memindahkan 'convert'
+        # Ubah panggilan .create() untuk menghapus 'supportsAllDrives'
         drive_service.files().create(
             body=file_metadata,
             media_body=media,
             fields="id",
-            # Pindahkan parameter 'convert' ke sini
-            # ini akan diabaikan jika false, atau digunakan jika true
-            supportsAllDrives=True  # Parameter ini juga mungkin diperlukan
+            convert=is_conversion_needed
         ).execute()
 
         flash(f"File '{filename}' berhasil diunggah dan dikonversi.", "success")
