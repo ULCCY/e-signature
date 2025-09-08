@@ -13,24 +13,55 @@
 </head>
 <body class="bg-gray-100 flex items-start justify-center min-h-screen p-8">
 
-    <!-- Container Utama -->
     <div class="bg-white p-8 rounded-xl shadow-lg w-full max-w-2xl mt-12">
         <h2 class="text-2xl font-semibold text-gray-800 mb-6 text-center">
             File di Folder
         </h2>
+        
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+            <div class="p-3 mb-4 rounded-lg text-sm font-medium {% if category == 'success' %}bg-green-100 text-green-700{% else %}bg-red-100 text-red-700{% endif %}">
+                {{ message }}
+            </div>
+            {% endfor %}
+        {% endif %}
+        {% endwith %}
 
-        <!-- Daftar File -->
+        {% if is_pengajuan_awal %}
+        <div class="mb-6 border-b pb-6">
+            <h3 class="text-lg font-medium text-gray-700 mb-4">Unggah Dokumen Baru</h3>
+            <form action="{{ url_for('upload_file') }}" method="post" enctype="multipart/form-data" class="flex flex-col sm:flex-row items-center space-y-4 sm:space-y-0 sm:space-x-4">
+                <input type="file" name="file" required class="flex-grow p-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <input type="hidden" name="folder_id" value="{{ folder_id }}">
+                <button type="submit" class="bg-green-600 text-white font-semibold px-6 py-2 rounded-full hover:bg-green-700 transition-colors w-full sm:w-auto">
+                    Unggah
+                </button>
+            </form>
+        </div>
+        {% endif %}
+
         {% if files %}
         <ul class="space-y-4">
             {% for file in files %}
             <li class="bg-gray-50 p-4 rounded-lg flex items-center justify-between shadow-sm">
                 <span class="text-gray-700 font-medium truncate">{{ file.name }}</span>
-                <a 
-                    href="{{ url_for('load_file', file_id=file.id) }}"
-                    class="bg-blue-600 text-white text-sm font-semibold px-4 py-2 rounded-full hover:bg-blue-700 transition-colors"
-                >
-                    Preview
-                </a>
+                <div class="flex space-x-2">
+                    <a 
+                        href="{{ url_for('load_file', file_id=file.id) }}"
+                        class="bg-blue-600 text-white text-sm font-semibold px-4 py-2 rounded-full hover:bg-blue-700 transition-colors"
+                    >
+                        Preview
+                    </a>
+                    {% if is_pengajuan_awal %}
+                    <form action="{{ url_for('delete_file', file_id=file.id) }}" method="post" onsubmit="return confirm('Apakah Anda yakin ingin menghapus file ini?');">
+                        <input type="hidden" name="folder_id" value="{{ folder_id }}">
+                        <button type="submit" class="bg-red-600 text-white text-sm font-semibold px-4 py-2 rounded-full hover:bg-red-700 transition-colors">
+                            Hapus
+                        </button>
+                    </form>
+                    {% endif %}
+                </div>
             </li>
             {% endfor %}
         </ul>

@@ -29,12 +29,44 @@
             Pratinjau Dokumen
         </h2>
         
-        <!-- Area PDF Viewer -->
         <div class="w-full h-96 sm:h-[600px] bg-gray-200 rounded-lg overflow-hidden mb-6 shadow-inner">
             <iframe id="pdf-viewer" class="w-full h-full" src="/download_pdf/{{ file_id }}"></iframe>
         </div>
 
-        <!-- Area Tanda Tangan -->
+        {% if is_pengajuan_awal %}
+        <div class="w-full mb-6">
+            <h3 class="text-lg font-medium text-gray-700 mb-2">Data Pengajuan</h3>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                    <label for="bulan" class="block text-sm font-medium text-gray-700">Bulan Pengajuan</label>
+                    <input type="number" id="pengajuan_bulan" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500" min="1" max="12" required>
+                </div>
+                <div>
+                    <label for="tahun" class="block text-sm font-medium text-gray-700">Tahun Pengajuan</label>
+                    <input type="number" id="pengajuan_tahun" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500" min="2000" max="2100" required>
+                </div>
+                <div>
+                    <label for="perusahaan" class="block text-sm font-medium text-gray-700">Perusahaan</label>
+                    <select id="perusahaan" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500" required>
+                        <option value="">Pilih Perusahaan</option>
+                        <option value="R">R (Rabat)</option>
+                        <option value="P">P (PRS)</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="pengajuan_akhir" class="block text-sm font-medium text-gray-700">Pengajuan Akhir</label>
+                    <select id="pengajuan_akhir" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500" required>
+                        <option value="">Pilih Pengajuan Akhir</option>
+                        <option value="S">S (Finance Supervisor)</option>
+                        <option value="M">M (Finance Manager)</option>
+                        <option value="G">G (General Manager)</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if not is_final_folder %}
         <div class="w-full mb-6">
             <h3 class="text-lg font-medium text-gray-700 mb-2">Tanda Tangan Digital</h3>
             <canvas id="signature-pad" class="w-full rounded-lg cursor-crosshair"></canvas>
@@ -47,6 +79,7 @@
                 </button>
             </div>
         </div>
+        {% endif %}
 
         <div class="w-full text-center">
             <a href="/folder/{{ folder_id }}" class="text-blue-600 hover:text-blue-800 transition-colors text-sm font-medium">
@@ -55,12 +88,10 @@
         </div>
     </div>
 
-    <!-- Modal Status -->
     <div id="status-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center modal-overlay">
         <div class="bg-white p-6 rounded-xl shadow-xl max-w-sm w-full text-center">
             <p id="modal-message" class="text-gray-800 font-medium"></p>
             <div id="modal-spinner" class="mt-4 animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500 mx-auto hidden"></div>
-            <input id="filename-input" type="text" placeholder="Masukkan nama file baru (opsional)" class="w-full mt-4 px-3 py-2 border rounded-lg hidden">
             <div id="modal-buttons" class="mt-4 hidden space-x-2">
                 <button id="confirm-button" class="bg-green-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-green-700">OK</button>
                 <button id="cancel-button" class="bg-gray-400 text-white font-semibold py-2 px-4 rounded-lg hover:bg-gray-500">Batal</button>
@@ -71,19 +102,27 @@
     <script>
         const canvas = document.getElementById('signature-pad');
         const clearButton = document.getElementById('clear-button');
-        const saveButton = document = document.getElementById('save-button');
+        const saveButton = document.getElementById('save-button');
         const statusModal = document.getElementById('status-modal');
         const modalMessage = document.getElementById('modal-message');
         const modalSpinner = document.getElementById('modal-spinner');
-        const filenameInput = document.getElementById('filename-input');
         const modalButtons = document.getElementById('modal-buttons');
         const confirmButton = document.getElementById('confirm-button');
         const cancelButton = document.getElementById('cancel-button');
+        
+        // Elemen formulir tambahan
+        const pengajuanBulan = document.getElementById('pengajuan_bulan');
+        const pengajuanTahun = document.getElementById('pengajuan_tahun');
+        const perusahaan = document.getElementById('perusahaan');
+        const pengajuanAkhir = document.getElementById('pengajuan_akhir');
 
+        // Logic menggambar di canvas
+        {% if not is_final_folder %}
         const ctx = canvas.getContext('2d');
         let isDrawing = false;
         let lastX = 0;
         let lastY = 0;
+        let hasSigned = false; // Flag untuk melacak apakah tanda tangan sudah dibuat
 
         function resizeCanvas() {
             canvas.width = canvas.offsetWidth;
@@ -105,6 +144,7 @@
             ctx.lineTo(e.offsetX, e.offsetY);
             ctx.stroke();
             [lastX, lastY] = [e.offsetX, e.offsetY];
+            hasSigned = true;
         }
 
         canvas.addEventListener('mousedown', (e) => {
@@ -136,47 +176,78 @@
             ctx.lineTo(x, y);
             ctx.stroke();
             [lastX, lastY] = [x, y];
+            hasSigned = true;
         }, false);
         canvas.addEventListener('touchend', () => isDrawing = false, false);
         canvas.addEventListener('touchcancel', () => isDrawing = false, false);
 
         clearButton.addEventListener('click', () => {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
+            hasSigned = false;
         });
-
+        
         saveButton.addEventListener('click', () => {
-            showModal("Masukkan nama file baru (opsional):", false, true, true);
+            {% if is_pengajuan_awal %}
+            // Validasi data pengajuan
+            if (!pengajuanBulan.value || !pengajuanTahun.value || !perusahaan.value || !pengajuanAkhir.value) {
+                alert("Mohon lengkapi semua data pengajuan sebelum melanjutkan.");
+                return;
+            }
+            if (!hasSigned) {
+                alert("Mohon buat tanda tangan terlebih dahulu.");
+                return;
+            }
+            {% endif %}
+
+            // Jika bukan folder 'Pengajuan Awal', hanya cek tanda tangan
+            {% if not is_pengajuan_awal %}
+            if (!hasSigned) {
+                alert("Mohon buat tanda tangan terlebih dahulu.");
+                return;
+            }
+            {% endif %}
+            
+            // Tampilkan modal konfirmasi atau langsung proses
+            showModal("Apakah Anda yakin ingin menyimpan dan melanjutkan?", false, true);
         });
 
         confirmButton.addEventListener('click', async () => {
             const signatureData = canvas.toDataURL('image/png');
             const fileId = "{{ file_id }}";
             const folderName = "{{ folder }}";
-            const newFilename = filenameInput.value || null;
 
-            showModal("Menyimpan tanda tangan dan memproses dokumen...", true, false, false);
+            showModal("Menyimpan tanda tangan dan memproses dokumen...", true, false);
 
+            const requestBody = {
+                file_id: fileId,
+                folder: folderName,
+                signature: signatureData,
+            };
+
+            // Tambahkan data pengajuan jika ada
+            {% if is_pengajuan_awal %}
+            requestBody.pengajuan_bulan = pengajuanBulan.value;
+            requestBody.pengajuan_tahun = pengajuanTahun.value;
+            requestBody.perusahaan = perusahaan.value;
+            requestBody.pengajuan_akhir = pengajuanAkhir.value;
+            {% endif %}
+            
             try {
                 const response = await fetch('/save_signature', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        file_id: fileId,
-                        folder: folderName,
-                        signature: signatureData,
-                        new_filename: newFilename
-                    })
+                    body: JSON.stringify(requestBody)
                 });
 
                 if (response.ok) {
-                    showModal("Dokumen berhasil ditandatangani dan dipindahkan.", false, false, false);
+                    showModal("Dokumen berhasil ditandatangani dan dipindahkan.", false, false);
                     setTimeout(() => window.location.href = `/folder/{{ folder_id }}`, 2000);
                 } else {
                     const errorText = await response.text();
-                    showModal("Gagal menyimpan tanda tangan: " + errorText, false, false, false);
+                    showModal("Gagal menyimpan tanda tangan: " + errorText, false, false);
                 }
             } catch (error) {
-                showModal("Terjadi kesalahan jaringan: " + error.message, false, false, false);
+                showModal("Terjadi kesalahan jaringan: " + error.message, false, false);
             }
         });
 
@@ -184,13 +255,13 @@
             statusModal.classList.add('hidden');
         });
 
-        function showModal(message, showSpinner, showInput, showButtons) {
+        function showModal(message, showSpinner, showButtons) {
             modalMessage.textContent = message;
             statusModal.classList.remove('hidden');
             modalSpinner.classList.toggle('hidden', !showSpinner);
-            filenameInput.classList.toggle('hidden', !showInput);
             modalButtons.classList.toggle('hidden', !showButtons);
         }
+        {% endif %}
     </script>
 </body>
 </html>

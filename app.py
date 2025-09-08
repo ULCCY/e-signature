@@ -2,7 +2,7 @@ import os
 import json
 import io
 import base64
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_from_directory
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_from_directory, flash
 from dotenv import load_dotenv
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -12,11 +12,12 @@ from reportlab.lib.pagesizes import A4
 from PyPDF2 import PdfReader, PdfWriter
 import threading
 import mimetypes
+from datetime import datetime
 
 # Muat variabel dari file .env
 load_dotenv()
 SECRET_KEY = os.getenv("SECRET_KEY")
-GOOGLE_SERVICE_ACCOUNT_JSON = json.loads(os.getenv("GOOGLE_SERVICE_ACCOUNT"))
+GOOGLE_SERVICE_ACCOUNT_PATH = 'service_account.json'
 # Periksa apakah FOLDERS dan FOLDER_PASSWORDS sudah dimuat
 FOLDERS = json.loads(os.getenv("FOLDERS"))
 FOLDER_PASSWORDS = json.loads(os.getenv("FOLDER_PASSWORDS"))
@@ -34,9 +35,9 @@ DOWNLOAD_STATUS = {}
 
 def get_drive_service():
     """Menginisialisasi dan mengembalikan objek layanan Google Drive."""
-    creds = service_account.Credentials.from_service_account_info(
-        GOOGLE_SERVICE_ACCOUNT_JSON,
-        scopes=["https://www.googleapis.com/auth/drive.readonly", "https://www.googleapis.com/auth/drive.file"]
+    creds = service_account.Credentials.from_service_account_file(
+        GOOGLE_SERVICE_ACCOUNT_PATH,
+        scopes=["https://www.googleapis.com/auth/drive"]
     )
     return build("drive", "v3", credentials=creds)
 
@@ -121,13 +122,12 @@ def add_signature_to_pdf(input_pdf_path, signature_data_url, keyword):
         return None
 
 # ==============================================================================
-#                               ROUTING APLIKASI
+#                                ROUTING APLIKASI
 # ==============================================================================
 
 @app.route("/")
 def index():
     """Halaman utama, menampilkan daftar folder berdasarkan grup."""
-    # Definisikan grup folder
     folder_groups = {
         "Pengajuan Awal": ["01 - Pengajuan Awal"],
         "Rabat": ["02A - SPV HRGA", "03A - SPV", "03B - Manager", "03C - General"],
@@ -170,7 +170,63 @@ def view_folder(folder_id):
         return render_template("password.html", folder_id=folder_id, folder_name=folder_name)
 
     files = get_files(folder_id)
-    return render_template("folder.html", files=files, folder_id=folder_id)
+    # Tentukan apakah ini folder '01 - Pengajuan Awal'
+    is_pengajuan_awal = folder_name == "01 - Pengajuan Awal"
+    return render_template("folder.html", files=files, folder_id=folder_id, is_pengajuan_awal=is_pengajuan_awal)
+
+@app.route("/upload_file", methods=["POST"])
+def upload_file():
+    """Mengunggah file ke folder '01 - Pengajuan Awal'."""
+    if 'file' not in request.files:
+        flash("Tidak ada file yang diunggah.", "error")
+        return redirect(url_for("view_folder", folder_id=FOLDERS["01 - Pengajuan Awal"]))
+    
+    file = request.files['file']
+    folder_id = request.form.get("folder_id")
+
+    if not file.filename:
+        flash("Tidak ada file yang dipilih.", "error")
+        return redirect(url_for("view_folder", folder_id=folder_id))
+
+    try:
+        file_metadata = {
+            'name': file.filename,
+            'parents': [folder_id]
+        }
+        media = MediaFileUpload(
+            io.BytesIO(file.read()),
+            mimetype=file.content_type,
+            resumable=True
+        )
+        drive_service.files().create(
+            body=file_metadata,
+            media_body=media,
+            fields='id'
+        ).execute()
+        flash("File berhasil diunggah.", "success")
+    except Exception as e:
+        print(f"Error saat mengunggah file: {e}")
+        flash(f"Gagal mengunggah file: {e}", "error")
+
+    return redirect(url_for("view_folder", folder_id=folder_id))
+
+@app.route("/delete_file/<file_id>", methods=["POST"])
+def delete_file(file_id):
+    """Menghapus file dari Google Drive."""
+    folder_name = get_folder_name_by_id(request.form.get("folder_id"))
+    
+    # Pastikan penghapusan hanya bisa dilakukan di folder '01 - Pengajuan Awal'
+    if folder_name != "01 - Pengajuan Awal":
+        return "Akses Ditolak: Anda tidak memiliki izin untuk menghapus file di folder ini.", 403
+
+    try:
+        drive_service.files().delete(fileId=file_id).execute()
+        flash("File berhasil dihapus.", "success")
+    except Exception as e:
+        print(f"Error saat menghapus file: {e}")
+        flash(f"Gagal menghapus file: {e}", "error")
+
+    return redirect(url_for("view_folder", folder_id=request.form.get("folder_id")))
 
 @app.route("/load_file/<file_id>")
 def load_file(file_id):
@@ -178,8 +234,9 @@ def load_file(file_id):
     file = get_file_by_id(file_id)
     if not file:
         return "File tidak ditemukan.", 404
-    folder_name = get_folder_name_by_id(file.get('parents')[0])
-    return render_template("loading.html", file_id=file_id, folder=folder_name)
+    folder_id = file.get('parents')[0]
+    folder_name = get_folder_name_by_id(folder_id)
+    return render_template("loading.html", file_id=file_id, folder=folder_name, folder_id=folder_id)
 
 @app.route("/start_download/<file_id>")
 def start_download(file_id):
@@ -237,7 +294,18 @@ def preview_file(file_id):
     folder_id = file.get('parents')[0]
     folder_name = get_folder_name_by_id(folder_id)
     
-    return render_template("preview.html", file_id=file.get('id'), folder=folder_name, folder_id=folder_id)
+    # Tentukan apakah ini folder '05 - Final' atau '01 - Pengajuan Awal'
+    is_final_folder = folder_name == "05 - Final"
+    is_pengajuan_awal = folder_name == "01 - Pengajuan Awal"
+    
+    return render_template(
+        "preview.html", 
+        file_id=file.get('id'), 
+        folder=folder_name, 
+        folder_id=folder_id,
+        is_final_folder=is_final_folder,
+        is_pengajuan_awal=is_pengajuan_awal
+    )
 
 def get_folder_name_by_id(folder_id):
     """Mencari nama folder berdasarkan ID."""
@@ -254,33 +322,48 @@ def save_signature():
         file_id = data.get("file_id")
         folder_name = data.get("folder")
         signature_data = data.get("signature")
-        new_filename = data.get("new_filename")
-
-        if not all([file_id, folder_name, signature_data]):
-            return "Data tidak lengkap.", 400
-
-        file_metadata = drive_service.files().get(fileId=file_id).execute()
-        filename = file_metadata.get("name")
         
-        temp_pdf_path = os.path.join(TEMP_DIR, filename)
+        # Data tambahan dari form 'Pengajuan Awal'
+        pengajuan_bulan = data.get("pengajuan_bulan")
+        pengajuan_tahun = data.get("pengajuan_tahun")
+        perusahaan = data.get("perusahaan")
+        pengajuan_akhir = data.get("pengajuan_akhir")
         
-        signed_path = add_signature_to_pdf(temp_pdf_path, signature_data, folder_name)
-        if not signed_path:
-            return "Gagal menambahkan tanda tangan.", 500
+        # Jika folder 'Pengajuan Awal', lakukan validasi
+        if folder_name == "01 - Pengajuan Awal":
+            if not all([signature_data, pengajuan_bulan, pengajuan_tahun, perusahaan, pengajuan_akhir]):
+                return "Mohon lengkapi semua data dan tanda tangan.", 400
 
-        # Unggah kembali file yang sudah ditandatangani
-        media = MediaFileUpload(signed_path, mimetype="application/pdf", resumable=True)
-        drive_service.files().update(fileId=file_id, media_body=media).execute()
+        # Hanya jalankan proses tanda tangan jika bukan folder 'Final'
+        if folder_name != "05 - Final":
+            file_metadata = drive_service.files().get(fileId=file_id).execute()
+            filename = file_metadata.get("name")
+            temp_pdf_path = os.path.join(TEMP_DIR, filename)
+            signed_path = add_signature_to_pdf(temp_pdf_path, signature_data, folder_name)
+            if not signed_path:
+                return "Gagal menambahkan tanda tangan.", 500
 
-        # Ganti nama file jika `new_filename` ada
-        if new_filename:
-            drive_service.files().update(fileId=file_id, body={'name': new_filename}).execute()
-
+            # Unggah kembali file yang sudah ditandatangani
+            media = MediaFileUpload(signed_path, mimetype="application/pdf", resumable=True)
+            drive_service.files().update(fileId=file_id, media_body=media).execute()
+        
+            # Ganti nama file jika data dari form 'Pengajuan Awal' ada
+            if folder_name == "01 - Pengajuan Awal":
+                now = datetime.now()
+                month = now.strftime("%m")
+                year = now.strftime("%y")
+                
+                kode_pengajuan = pengajuan_akhir.upper() + perusahaan.upper()
+                original_filename = filename
+                
+                new_filename = f"{year}/{month} {kode_pengajuan} - {original_filename}"
+                drive_service.files().update(fileId=file_id, body={'name': new_filename}).execute()
+        
         # Pindahkan file ke folder berikutnya
         folder_mapping = {
             "01 - Pengajuan Awal": {
-                "SR": "02A - SPV HRGA", "MR": "02A - SPV HRGA", "GR": "02A - SPV HRGA",
-                "SP": "02B - PAMO", "MP": "02B - PAMO", "GP": "02B - PAMO",
+                "SR": "02A - SPV HRGA", "MR": "02B - PAMO", "GR": "02B - PAMO", # Mengubah alur untuk GR dan MR ke PAMO sesuai format naming
+                "SP": "02A - SPV HRGA", "MP": "02A - SPV HRGA", "GP": "02A - SPV HRGA",
             },
             "02A - SPV HRGA": {"SR": "03A - SPV", "MR": "03B - Manager", "GR": "03C - General"},
             "02B - PAMO": {"SP": "04A - SPV", "MP": "04B - Manager", "GP": "04C - General"},
@@ -291,21 +374,22 @@ def save_signature():
             "04B - Manager": {"MP": "05 - Final"},
             "04C - General": {"GP": "05 - Final"},
         }
-
-        # Ambil prefix dari `new_filename` jika ada, atau dari `filename` yang lama
-        prefix_to_map = new_filename.split()[0][:2].upper() if new_filename else filename.split()[0][:2].upper()
-
-        target_folder_name = folder_mapping.get(folder_name, {}).get(prefix_to_map)
+        
+        # Ambil kode pengajuan dari form jika ada, atau dari nama file
+        kode_pengajuan_to_map = kode_pengajuan if folder_name == "01 - Pengajuan Awal" else filename.split()[1][:2].upper()
+        
+        target_folder_name = folder_mapping.get(folder_name, {}).get(kode_pengajuan_to_map)
         if target_folder_name:
             target_id = FOLDERS.get(target_folder_name)
             if target_id:
                 move_file(file_id, target_id)
 
         # Hapus file sementara
-        if os.path.exists(temp_pdf_path):
-            os.remove(temp_pdf_path)
-        if os.path.exists(signed_path):
-            os.remove(signed_path)
+        if folder_name != "05 - Final":
+            if os.path.exists(temp_pdf_path):
+                os.remove(temp_pdf_path)
+            if os.path.exists(signed_path):
+                os.remove(signed_path)
 
         return "OK", 200
 
