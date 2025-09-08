@@ -1,33 +1,24 @@
 import os
-import json
 import io
-import base64
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_from_directory, flash
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash
 from dotenv import load_dotenv
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
+from googleapiclient.http import MediaIoBaseUpload
 from reportlab.pdfgen import canvas as pdf_canvas
 from reportlab.lib.pagesizes import A4
 from PyPDF2 import PdfReader, PdfWriter
+import json
 import threading
-import mimetypes
+from werkzeug.utils import secure_filename
 from datetime import datetime
+from io import BytesIO
 
-# Muat variabel dari file .env (untuk pengembangan lokal)
+# Muat variabel dari file .env
 load_dotenv()
-
 SECRET_KEY = os.getenv("SECRET_KEY")
-
-# Mengambil string JSON dari variabel lingkungan
-service_account_json_string = os.getenv("GOOGLE_SERVICE_ACCOUNT")
-
-# Memeriksa apakah variabel lingkungan ada dan memuatnya
-if not service_account_json_string:
-    raise ValueError("Variabel lingkungan GOOGLE_SERVICE_ACCOUNT tidak ditemukan. Mohon atur di Render.")
-
-GOOGLE_SERVICE_ACCOUNT_JSON = json.loads(service_account_json_string)
-
+GOOGLE_SERVICE_ACCOUNT_JSON = json.loads(os.getenv("GOOGLE_SERVICE_ACCOUNT"))
+# Periksa apakah FOLDERS dan FOLDER_PASSWORDS sudah dimuat
 FOLDERS = json.loads(os.getenv("FOLDERS"))
 FOLDER_PASSWORDS = json.loads(os.getenv("FOLDER_PASSWORDS"))
 
@@ -46,7 +37,7 @@ def get_drive_service():
     """Menginisialisasi dan mengembalikan objek layanan Google Drive."""
     creds = service_account.Credentials.from_service_account_info(
         GOOGLE_SERVICE_ACCOUNT_JSON,
-        scopes=["https://www.googleapis.com/auth/drive"]
+        scopes=["https://www.googleapis.com/auth/drive"] # Mengubah scope menjadi penuh
     )
     return build("drive", "v3", credentials=creds)
 
@@ -185,39 +176,70 @@ def view_folder(folder_id):
 
 @app.route("/upload_file", methods=["POST"])
 def upload_file():
-    """Mengunggah file ke folder '01 - Pengajuan Awal'."""
-    if 'file' not in request.files:
-        flash("Tidak ada file yang diunggah.", "error")
-        return redirect(url_for("view_folder", folder_id=FOLDERS["01 - Pengajuan Awal"]))
+    # Pastikan pengguna sudah login ke folder yang benar
+    if not session.get("logged_in") or session.get("folder_id") != request.form.get("folder_id"):
+        flash("Silakan login kembali untuk mengunggah file.", "error")
+        return redirect(url_for("login"))
     
-    file = request.files['file']
-    folder_id = request.form.get("folder_id")
-
-    if not file.filename:
-        flash("Tidak ada file yang dipilih.", "error")
-        return redirect(url_for("view_folder", folder_id=folder_id))
+    target_folder_id = request.form.get("folder_id")
 
     try:
+        # Dapatkan file dari permintaan POST
+        uploaded_file = request.files.get("file")
+        if not uploaded_file or uploaded_file.filename == "":
+            flash("Tidak ada file yang dipilih.", "error")
+            return redirect(url_for("folder_page", folder_id=target_folder_id))
+
+        # Tentukan tipe MIME dan nama file
+        filename = secure_filename(uploaded_file.filename)
+        mime_type = uploaded_file.content_type
+        
+        # Inisialisasi metadata file
         file_metadata = {
-            'name': file.filename,
-            'parents': [folder_id]
+            "name": filename,
+            "parents": [target_folder_id]
         }
-        media = MediaFileUpload(
-            io.BytesIO(file.read()),
-            mimetype=file.content_type,
-            resumable=True
-        )
+        
+        # Cek apakah file perlu dikonversi ke PDF
+        is_conversion_needed = False
+        if mime_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document" or \
+           mime_type == "application/msword" or \
+           mime_type == "application/vnd.oasis.opendocument.text":
+            
+            is_conversion_needed = True
+            # Ubah nama file agar berekstensi .pdf
+            if "." in filename:
+                name_without_ext = filename.rsplit(".", 1)[0]
+                filename = f"{name_without_ext}.pdf"
+            else:
+                filename += ".pdf"
+
+            file_metadata["name"] = filename
+            # Tentukan MIME tipe baru untuk PDF
+            file_metadata["mimeType"] = "application/pdf"
+            
+        # Gunakan MediaIoBaseUpload untuk mengunggah dari stream file
+        # Ini lebih efisien karena tidak perlu menyimpan file di disk
+        media = MediaIoBaseUpload(uploaded_file.stream, mimetype=mime_type, resumable=True)
+
+        # Unggah file ke Google Drive
+        # Parameter `convert=True` akan secara otomatis mengubah format
+        # menjadi format yang ditentukan di `mimeType` metadata
         drive_service.files().create(
             body=file_metadata,
             media_body=media,
-            fields='id'
+            fields="id",
+            # Jika konversi diperlukan, tambahkan parameter ini
+            convert=is_conversion_needed
         ).execute()
-        flash("File berhasil diunggah.", "success")
+
+        flash(f"File '{filename}' berhasil diunggah dan dikonversi.", "success")
+        
     except Exception as e:
         print(f"Error saat mengunggah file: {e}")
-        flash(f"Gagal mengunggah file: {e}", "error")
+        flash(f"Error: Gagal mengunggah file. {e}", "error")
 
-    return redirect(url_for("view_folder", folder_id=folder_id))
+    return redirect(url_for("folder_page", folder_id=target_folder_id))
 
 @app.route("/delete_file/<file_id>", methods=["POST"])
 def delete_file(file_id):
