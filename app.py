@@ -176,14 +176,17 @@ def view_folder(folder_id):
 
 @app.route("/upload_file", methods=["POST"])
 def upload_file():
-    # Pastikan pengguna sudah login ke folder yang benar
+    # Ambil folder ID dari form
     target_folder_id = request.form.get("folder_id")
+
+    # Logika otentikasi
+    # Jika tidak ada sesi atau folder ID di sesi tidak cocok,
+    # redirect pengguna kembali dengan pesan error.
     if not session.get("logged_in") or session.get("folder_id") != target_folder_id:
         flash("Silakan login kembali untuk mengunggah file.", "error")
         return redirect(url_for("view_folder", folder_id=target_folder_id))
     
-    target_folder_id = request.form.get("folder_id")
-
+    # Blok try-except untuk menangani unggahan
     try:
         # Dapatkan file dari permintaan POST
         uploaded_file = request.files.get("file")
@@ -203,9 +206,10 @@ def upload_file():
         
         # Cek apakah file perlu dikonversi ke PDF
         is_conversion_needed = False
-        if mime_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document" or \
-           mime_type == "application/msword" or \
-           mime_type == "application/vnd.oasis.opendocument.text":
+        # Gunakan 'in' untuk cara yang lebih ringkas
+        if mime_type in ["application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                       "application/msword",
+                       "application/vnd.oasis.opendocument.text"]:
             
             is_conversion_needed = True
             # Ubah nama file agar berekstensi .pdf
@@ -216,21 +220,16 @@ def upload_file():
                 filename += ".pdf"
 
             file_metadata["name"] = filename
-            # Tentukan MIME tipe baru untuk PDF
             file_metadata["mimeType"] = "application/pdf"
             
         # Gunakan MediaIoBaseUpload untuk mengunggah dari stream file
-        # Ini lebih efisien karena tidak perlu menyimpan file di disk
         media = MediaIoBaseUpload(uploaded_file.stream, mimetype=mime_type, resumable=True)
 
         # Unggah file ke Google Drive
-        # Parameter `convert=True` akan secara otomatis mengubah format
-        # menjadi format yang ditentukan di `mimeType` metadata
         drive_service.files().create(
             body=file_metadata,
             media_body=media,
             fields="id",
-            # Jika konversi diperlukan, tambahkan parameter ini
             convert=is_conversion_needed
         ).execute()
 
