@@ -161,14 +161,25 @@ def index():
 
     return render_template("index.html", group_data=group_data)
 
-@app.route("/folder/<folder_id>", methods=["GET"]) # Hapus POST
+@app.route("/folder/<folder_id>", methods=["GET", "POST"])
 def view_folder(folder_id):
-    """Menampilkan isi folder dengan otentikasi sesi."""
+    """Menampilkan isi folder, dengan otentikasi kata sandi."""
     folder_name = get_folder_name_by_id(folder_id)
     if not folder_name:
         return "Folder tidak ditemukan.", 404
 
-    # Logika otentikasi yang konsisten
+    # Periksa apakah ini permintaan POST dari form kata sandi
+    if request.method == "POST":
+        password = request.form.get("password")
+        if FOLDER_PASSWORDS.get(folder_id) == password:
+            session["logged_in"] = True
+            session["folder_id"] = folder_id
+            return redirect(url_for("view_folder", folder_id=folder_id))
+        
+        error = "Password yang Anda masukkan salah."
+        return render_template("password.html", folder_id=folder_id, folder_name=folder_name, error=error)
+
+    # Periksa sesi untuk permintaan GET
     if not session.get("logged_in") or session.get("folder_id") != folder_id:
         return render_template("password.html", folder_id=folder_id, folder_name=folder_name)
 
