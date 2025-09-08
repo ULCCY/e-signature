@@ -1,10 +1,11 @@
 import os
 import io
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash
+import base64
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash, send_from_directory
 from dotenv import load_dotenv
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
+from googleapiclient.http import MediaIoBaseUpload, MediaFileUpload, MediaIoBaseDownload
 from reportlab.pdfgen import canvas as pdf_canvas
 from reportlab.lib.pagesizes import A4
 from PyPDF2 import PdfReader, PdfWriter
@@ -12,6 +13,7 @@ import json
 import threading
 from werkzeug.utils import secure_filename
 from datetime import datetime
+import mimetypes
 
 # Muat variabel dari file .env
 load_dotenv()
@@ -36,7 +38,7 @@ def get_drive_service():
     """Menginisialisasi dan mengembalikan objek layanan Google Drive."""
     creds = service_account.Credentials.from_service_account_info(
         GOOGLE_SERVICE_ACCOUNT_JSON,
-        scopes=["https://www.googleapis.com/auth/drive"] # Mengubah scope menjadi penuh
+        scopes=["https://www.googleapis.com/auth/drive"]
     )
     return build("drive", "v3", credentials=creds)
 
@@ -83,11 +85,9 @@ def move_file(file_id, new_parent_id):
 def add_signature_to_pdf(input_pdf_path, signature_data_url, keyword):
     """Menambahkan tanda tangan ke PDF. Tanda tangan akan diletakkan di bawah keyword."""
     try:
-        # Konversi data URL tanda tangan ke gambar
         header, encoded_data = signature_data_url.split(",", 1)
         signature_binary_data = base64.b64decode(encoded_data)
 
-        # Buat PDF sementara untuk tanda tangan
         sig_pdf_path = os.path.join(TEMP_DIR, "signature.pdf")
         c = pdf_canvas.Canvas(sig_pdf_path, pagesize=A4)
         c.drawImage(
@@ -97,13 +97,11 @@ def add_signature_to_pdf(input_pdf_path, signature_data_url, keyword):
         )
         c.save()
 
-        # Baca PDF input dan PDF tanda tangan
         input_pdf = PdfReader(open(input_pdf_path, "rb"))
         sig_pdf = PdfReader(open(sig_pdf_path, "rb"))
         
         output = PdfWriter()
 
-        # Gabungkan tanda tangan ke halaman terakhir PDF
         for i in range(len(input_pdf.pages)):
             page = input_pdf.pages[i]
             if i == len(input_pdf.pages) - 1:
@@ -120,9 +118,6 @@ def add_signature_to_pdf(input_pdf_path, signature_data_url, keyword):
         print(f"Error saat menambahkan tanda tangan ke PDF: {e}")
         return None
 
-# ==============================================================================
-#                                ROUTING APLIKASI
-# ==============================================================================
 @app.route("/login", methods=["POST"])
 def login():
     folder_id = request.form.get("folder_id")
@@ -136,9 +131,11 @@ def login():
         session["logged_in"] = False
         flash("Password salah. Silakan coba lagi.", "error")
     
-    # Alihkan ke halaman folder
     return redirect(url_for("view_folder", folder_id=folder_id))
 
+# ==============================================================================
+#                                ROUTING APLIKASI
+# ==============================================================================
 @app.route("/")
 def index():
     """Halaman utama, menampilkan daftar folder berdasarkan grup."""
@@ -164,16 +161,15 @@ def index():
 
     return render_template("index.html", group_data=group_data)
 
-@app.route("/folder/<folder_id>", methods=["GET", "POST"])
+@app.route("/folder/<folder_id>", methods=["GET"]) # Hapus POST
 def view_folder(folder_id):
-    """Menampilkan isi folder dengan otentikasi sesi yang diperbarui."""
+    """Menampilkan isi folder dengan otentikasi sesi."""
     folder_name = get_folder_name_by_id(folder_id)
     if not folder_name:
         return "Folder tidak ditemukan.", 404
 
     # Logika otentikasi yang konsisten
     if not session.get("logged_in") or session.get("folder_id") != folder_id:
-        # Jika belum login atau salah folder, arahkan ke halaman password
         return render_template("password.html", folder_id=folder_id, folder_name=folder_name)
 
     files = get_files(folder_id)
@@ -192,31 +188,25 @@ def upload_file():
     
     # Blok try-except untuk menangani unggahan
     try:
-        # Dapatkan file dari permintaan POST
         uploaded_file = request.files.get("file")
         if not uploaded_file or uploaded_file.filename == "":
             flash("Tidak ada file yang dipilih.", "error")
             return redirect(url_for("view_folder", folder_id=target_folder_id))
 
-        # Tentukan tipe MIME dan nama file
         filename = secure_filename(uploaded_file.filename)
         mime_type = uploaded_file.content_type
         
-        # Inisialisasi metadata file
         file_metadata = {
             "name": filename,
             "parents": [target_folder_id]
         }
         
-        # Cek apakah file perlu dikonversi ke PDF
         is_conversion_needed = False
-        # Gunakan 'in' untuk cara yang lebih ringkas
         if mime_type in ["application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                        "application/msword",
                        "application/vnd.oasis.opendocument.text"]:
             
             is_conversion_needed = True
-            # Ubah nama file agar berekstensi .pdf
             if "." in filename:
                 name_without_ext = filename.rsplit(".", 1)[0]
                 filename = f"{name_without_ext}.pdf"
@@ -226,10 +216,8 @@ def upload_file():
             file_metadata["name"] = filename
             file_metadata["mimeType"] = "application/pdf"
             
-        # Gunakan MediaIoBaseUpload untuk mengunggah dari stream file
         media = MediaIoBaseUpload(uploaded_file.stream, mimetype=mime_type, resumable=True)
 
-        # Unggah file ke Google Drive
         drive_service.files().create(
             body=file_metadata,
             media_body=media,
