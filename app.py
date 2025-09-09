@@ -42,19 +42,17 @@ TOKEN_FILE = "token.json"
 def get_drive_service():
     """Menginisialisasi dan mengembalikan objek layanan Google Drive dengan kredensial OAuth."""
     creds = None
-    # Token disimpan di file token.json
     if os.path.exists(TOKEN_FILE):
         creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
-    
-    # Jika tidak ada kredensial atau token sudah kedaluwarsa, mulai alur otorisasi
+
     if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            # Perbarui kredensial menggunakan data dari variabel lingkungan
-            creds.refresh(InstalledAppFlow.from_client_config(CLIENT_SECRETS, SCOPES).credentials)
-        else:
-            # Mulai alur otorisasi menggunakan data dari variabel lingkungan
-            flow = InstalledAppFlow.from_client_config(CLIENT_SECRETS, SCOPES)
-            return flow.run_local_server(port=0)
+        # Logika ini seharusnya tidak lagi dipanggil di sini.
+        # Sebaiknya, alihkan pengguna ke rute /authorize
+        # Jika kredensial tidak ada, kembalikan None
+        return None
+
+    if creds and creds.expired and creds.refresh_token:
+        creds.refresh(InstalledAppFlow.from_client_config(CLIENT_SECRETS, SCOPES).credentials)
 
     return build('drive', 'v3', credentials=creds)
 
@@ -162,6 +160,11 @@ def oauth2callback():
 # --- RUTE-RUTE FLASK LAINNYA TIDAK BERUBAH SECARA SIGNIFIKAN ---
 @app.route("/", methods=["GET", "POST"])
 def index():
+    service = get_drive_service()
+    if service is None:
+        # Jika tidak ada kredensial, alihkan pengguna ke otorisasi
+        return redirect(url_for('authorize'))
+    
     """Halaman utama, menampilkan daftar folder berdasarkan grup."""
     folder_groups = {
         "Pengajuan Awal": ["01 - Pengajuan Awal"],
