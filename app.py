@@ -36,7 +36,7 @@ DOWNLOAD_STATUS = {}
 
 # Konfigurasi OAuth 2.0
 SCOPES = ['https://www.googleapis.com/auth/drive']
-CLIENT_SECRETS_FILE = "credentials.json"
+CLIENT_SECRETS = json.loads(os.getenv("GOOGLE_CREDENTIALS"))
 TOKEN_FILE = "token.json"
 
 def get_drive_service():
@@ -49,9 +49,11 @@ def get_drive_service():
     # Jika tidak ada kredensial atau token sudah kedaluwarsa, mulai alur otorisasi
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(InstalledAppFlow.from_client_secrets_file(CLIENT_SECRETS_FILE, SCOPES).credentials)
+            # Perbarui kredensial menggunakan data dari variabel lingkungan
+            creds.refresh(InstalledAppFlow.from_client_config(CLIENT_SECRETS, SCOPES).credentials)
         else:
-            flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRETS_FILE, SCOPES)
+            # Mulai alur otorisasi menggunakan data dari variabel lingkungan
+            flow = InstalledAppFlow.from_client_config(CLIENT_SECRETS, SCOPES)
             return flow.run_local_server(port=0)
 
     return build('drive', 'v3', credentials=creds)
@@ -138,8 +140,7 @@ def add_signature_to_pdf(input_pdf_path, signature_data_url, keyword):
 # --- RUTE-RUTE FLASK BARU UNTUK OTENTIKASI ---
 @app.route("/authorize")
 def authorize():
-    flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRETS_FILE, SCOPES)
-    flow.redirect_uri = url_for('oauth2callback', _external=True)
+    flow = InstalledAppFlow.from_client_config(CLIENT_SECRETS, SCOPES)    flow.redirect_uri = url_for('oauth2callback', _external=True)
     authorization_url, state = flow.authorization_url(access_type='offline', include_granted_scopes='true')
     session['state'] = state
     return redirect(authorization_url)
@@ -147,8 +148,7 @@ def authorize():
 @app.route("/oauth2callback")
 def oauth2callback():
     state = session['state']
-    flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRETS_FILE, SCOPES, state=state)
-    flow.redirect_uri = url_for('oauth2callback', _external=True)
+    flow = InstalledAppFlow.from_client_config(CLIENT_SECRETS, SCOPES, state=state)    flow.redirect_uri = url_for('oauth2callback', _external=True)
     authorization_response = request.url
     flow.fetch_token(authorization_response=authorization_response)
     creds = flow.credentials
