@@ -140,7 +140,8 @@ def add_signature_to_pdf(input_pdf_path, signature_data_url, keyword):
 # --- RUTE-RUTE FLASK BARU UNTUK OTENTIKASI ---
 @app.route("/authorize")
 def authorize():
-    flow = InstalledAppFlow.from_client_config(CLIENT_SECRETS, SCOPES)    flow.redirect_uri = url_for('oauth2callback', _external=True)
+    flow = InstalledAppFlow.from_client_config(CLIENT_SECRETS, SCOPES)
+    flow.redirect_uri = url_for('oauth2callback', _external=True)
     authorization_url, state = flow.authorization_url(access_type='offline', include_granted_scopes='true')
     session['state'] = state
     return redirect(authorization_url)
@@ -148,7 +149,8 @@ def authorize():
 @app.route("/oauth2callback")
 def oauth2callback():
     state = session['state']
-    flow = InstalledAppFlow.from_client_config(CLIENT_SECRETS, SCOPES, state=state)    flow.redirect_uri = url_for('oauth2callback', _external=True)
+    flow = InstalledAppFlow.from_client_config(CLIENT_SECRETS, SCOPES, state=state)
+    flow.redirect_uri = url_for('oauth2callback', _external=True)
     authorization_response = request.url
     flow.fetch_token(authorization_response=authorization_response)
     creds = flow.credentials
