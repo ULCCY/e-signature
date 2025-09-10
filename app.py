@@ -235,20 +235,23 @@ def view_folder(folder_id):
         flash("Folder tidak ditemukan.", "error")
         return redirect(url_for("index"))
 
-    # Periksa apakah folder memiliki kata sandi di FOLDER_PASSWORDS
+    # Jika folder dilindungi kata sandi, periksa otentikasi
     if folder_name in FOLDER_PASSWORDS:
         password_from_form = request.form.get("password")
         
-        # Jika bukan POST request atau kata sandi salah, tampilkan halaman kata sandi
-        if request.method == "GET" or password_from_form != FOLDER_PASSWORDS[folder_name]:
-            # Jika kata sandi salah, tampilkan pesan error
+        # Jika metodenya GET (kunjungan pertama) atau kata sandi salah (POST)
+        if request.method == "GET" or password_from_form != FOLDER_PASSWORDS.get(folder_name):
             if request.method == "POST":
                 flash("Kata sandi salah. Silakan coba lagi.", "error")
             return render_template("password.html", folder_id=folder_id, folder_name=folder_name)
 
-    # Lanjutkan hanya jika folder tidak dilindungi kata sandi atau kata sandi sudah benar
+    # Lanjutkan hanya jika folder tidak dilindungi atau kata sandi sudah benar
+    service = get_drive_service()
+    if service is None:
+        flash("Gagal terhubung ke Google Drive. Silakan otorisasi ulang.", "error")
+        return redirect(url_for("authorize"))
+
     try:
-        service = get_drive_service()
         results = service.files().list(
             q=f"'{folder_id}' in parents and trashed=false",
             pageSize=10,
@@ -269,8 +272,12 @@ def view_folder(folder_id):
 @app.route("/upload_file", methods=["POST"])
 def upload_file():
     target_folder_id = request.form.get("folder_id")
-    if not session.get("logged_in") or session.get("folder_id") != target_folder_id:
-        flash("Silakan login kembali untuk mengunggah file.", "error")
+    folder_name = FOLDERS.get(target_folder_id)
+
+    # Periksa ulang kata sandi di sini untuk keamanan
+    password_from_form = request.form.get("password")
+    if folder_name in FOLDER_PASSWORDS and password_from_form != FOLDER_PASSWORDS.get(folder_name):
+        flash("Kata sandi salah. Silakan coba lagi.", "error")
         return redirect(url_for("view_folder", folder_id=target_folder_id))
     
     try:
