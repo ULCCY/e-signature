@@ -16,6 +16,7 @@ from reportlab.lib.pagesizes import A4
 from PyPDF2 import PdfReader, PdfWriter
 from werkzeug.utils import secure_filename
 from datetime import datetime
+from oauthlib.oauth2.rfc6749.errors import AccessDeniedError
 
 # Muat variabel dari file .env
 load_dotenv()
@@ -191,22 +192,31 @@ def authorize():
 
 @app.route("/oauth2callback")
 def oauth2callback():
-    state = session['state']
+    state = session.get('state')
     flow = InstalledAppFlow.from_client_config(CLIENT_SECRETS, SCOPES, state=state)
     flow.redirect_uri = url_for('oauth2callback', _external=True)
     authorization_response = request.url
-    flow.fetch_token(authorization_response=authorization_response)
-    creds = flow.credentials
-    with open(TOKEN_FILE, 'w') as token:
-        token.write(creds.to_json())
+    
+    try:
+        flow.fetch_token(authorization_response=authorization_response)
+        creds = flow.credentials
+        with open(TOKEN_FILE, 'w') as token:
+            token.write(creds.to_json())
 
-    # Tambahkan baris ini untuk mencetak token ke log
-    print("================== TOKEN.JSON START ==================")
-    print(creds.to_json())
-    print("================== TOKEN.JSON END ==================")
+        # Tambahkan baris ini untuk mencetak token ke log
+        print("================== TOKEN.JSON START ==================")
+        print(creds.to_json())
+        print("================== TOKEN.JSON END ==================")
 
-    flash("Otentikasi Google Drive berhasil!", "success")
-    return redirect(url_for('index'))
+        flash("Otentikasi Google Drive berhasil!", "success")
+        return redirect(url_for('index'))
+    except AccessDeniedError:
+        flash("Akses ke Google Drive ditolak. Silakan berikan izin untuk melanjutkan.", "error")
+        return redirect(url_for('index'))
+    except Exception as e:
+        print(f"Error saat memproses callback otorisasi: {e}")
+        flash("Terjadi kesalahan saat otorisasi. Silakan coba lagi.", "error")
+        return redirect(url_for('index'))
 
 # --- RUTE-RUTE FLASK LAINNYA TIDAK BERUBAH SECARA SIGNIFIKAN ---
 @app.route("/", methods=["GET", "POST"])
@@ -256,7 +266,7 @@ def login():
 
 @app.route("/view_folder/<folder_id>", methods=["GET", "POST"])
 def view_folder(folder_id):
-    folder_name = FOLDERS.get(folder_id)
+    folder_name = get_folder_name_by_id(folder_id)
     if not folder_name:
         flash("Folder tidak ditemukan.", "error")
         return redirect(url_for("index"))
