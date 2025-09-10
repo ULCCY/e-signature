@@ -235,15 +235,23 @@ def view_folder(folder_id):
         flash("Folder tidak ditemukan.", "error")
         return redirect(url_for("index"))
 
+    # Jika folder dilindungi, cek apakah kata sandi sudah dimasukkan
     if folder_name in FOLDER_PASSWORDS:
-        password_from_form = request.form.get("password")
-        
-        if request.method == "GET" or password_from_form != FOLDER_PASSWORDS.get(folder_name):
-            if request.method == "POST":
+        if request.method == "POST":
+            password_from_form = request.form.get("password")
+            if password_from_form == FOLDER_PASSWORDS.get(folder_name):
+                # Kata sandi benar, simpan di sesi dan lanjutkan
+                session["authenticated_folders"] = session.get("authenticated_folders", []) + [folder_id]
+                return redirect(url_for("view_folder", folder_id=folder_id))
+            else:
+                # Kata sandi salah, kembali ke halaman kata sandi dengan pesan error
                 flash("Kata sandi salah. Silakan coba lagi.", "error")
+                return render_template("password.html", folder_id=folder_id, folder_name=folder_name)
+        elif folder_id not in session.get("authenticated_folders", []):
+            # Jika belum terotentikasi dan ini request GET, tampilkan halaman kata sandi
             return render_template("password.html", folder_id=folder_id, folder_name=folder_name)
 
-    # Lanjutkan hanya jika folder tidak dilindungi atau kata sandi sudah benar
+    # Lanjutkan hanya jika folder tidak dilindungi atau kata sandi sudah benar di sesi
     service = get_drive_service()
     if service is None:
         flash("Gagal terhubung ke Google Drive. Silakan otorisasi ulang.", "error")
