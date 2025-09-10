@@ -136,32 +136,32 @@ def add_signature_to_pdf(input_pdf_path, signature_data_url, keyword):
         return None
 
 # --- RUTE-RUTE FLASK BARU UNTUK OTENTIKASI ---
-# @app.route("/authorize")
-# def authorize():
-#     flow = InstalledAppFlow.from_client_config(CLIENT_SECRETS, SCOPES)
-#     flow.redirect_uri = url_for('oauth2callback', _external=True)
-#     authorization_url, state = flow.authorization_url(access_type='offline', include_granted_scopes='true', prompt='consent')
-#     session['state'] = state
-#     return redirect(authorization_url)
+@app.route("/authorize")
+def authorize():
+    flow = InstalledAppFlow.from_client_config(CLIENT_SECRETS, SCOPES)
+    flow.redirect_uri = url_for('oauth2callback', _external=True)
+    authorization_url, state = flow.authorization_url(access_type='offline', include_granted_scopes='true', prompt='consent')
+    session['state'] = state
+    return redirect(authorization_url)
 
-# @app.route("/oauth2callback")
-# def oauth2callback():
-#     state = session['state']
-#     flow = InstalledAppFlow.from_client_config(CLIENT_SECRETS, SCOPES, state=state)
-#     flow.redirect_uri = url_for('oauth2callback', _external=True)
-#     authorization_response = request.url
-#     flow.fetch_token(authorization_response=authorization_response)
-#     creds = flow.credentials
-#     with open(TOKEN_FILE, 'w') as token:
-#         token.write(creds.to_json())
+@app.route("/oauth2callback")
+def oauth2callback():
+    state = session['state']
+    flow = InstalledAppFlow.from_client_config(CLIENT_SECRETS, SCOPES, state=state)
+    flow.redirect_uri = url_for('oauth2callback', _external=True)
+    authorization_response = request.url
+    flow.fetch_token(authorization_response=authorization_response)
+    creds = flow.credentials
+    with open(TOKEN_FILE, 'w') as token:
+        token.write(creds.to_json())
 
-#     # Tambahkan baris ini untuk mencetak token ke log
-#     print("================== TOKEN.JSON START ==================")
-#     print(creds.to_json())
-#     print("================== TOKEN.JSON END ==================")
+    # Tambahkan baris ini untuk mencetak token ke log
+    print("================== TOKEN.JSON START ==================")
+    print(creds.to_json())
+    print("================== TOKEN.JSON END ==================")
 
-#     flash("Otentikasi Google Drive berhasil!", "success")
-#     return redirect(url_for('index'))
+    flash("Otentikasi Google Drive berhasil!", "success")
+    return redirect(url_for('index'))
 
 # --- RUTE-RUTE FLASK LAINNYA TIDAK BERUBAH SECARA SIGNIFIKAN ---
 @app.route("/", methods=["GET", "POST"])
@@ -209,17 +209,25 @@ def login():
         flash("Password salah. Silakan coba lagi.", "error")
         return redirect(url_for("view_folder", folder_id=folder_id))
 
-@app.route("/view_folder/<folder_id>", methods=["GET"])
+@app.route("/view_folder/<folder_id>", methods=["GET", "POST"])
 def view_folder(folder_id):
     folder_name = FOLDERS.get(folder_id)
     if not folder_name:
         flash("Folder tidak ditemukan.", "error")
         return redirect(url_for("index"))
 
-    # Periksa otentikasi
-    if not session.get("logged_in") or session.get("folder_id") != folder_id:
-        return render_template("password.html", folder_id=folder_id, folder_name=folder_name)
+    # Periksa apakah folder memiliki kata sandi di FOLDER_PASSWORDS
+    if folder_name in FOLDER_PASSWORDS:
+        password_from_form = request.form.get("password")
+        
+        # Jika bukan POST request atau kata sandi salah, tampilkan halaman kata sandi
+        if request.method == "GET" or password_from_form != FOLDER_PASSWORDS[folder_name]:
+            # Jika kata sandi salah, tampilkan pesan error
+            if request.method == "POST":
+                flash("Kata sandi salah. Silakan coba lagi.", "error")
+            return render_template("password.html", folder_id=folder_id, folder_name=folder_name)
 
+    # Lanjutkan hanya jika folder tidak dilindungi kata sandi atau kata sandi sudah benar
     try:
         service = get_drive_service()
         results = service.files().list(
