@@ -46,32 +46,33 @@ SCOPES = ['https://www.googleapis.com/auth/drive']
 CLIENT_SECRETS = json.loads(os.getenv("GOOGLE_CREDENTIALS"))
 TOKEN_FILE = "token.json"
 
-# app.py
 def get_drive_service():
-    """Mendapatkan objek layanan Google Drive. Mengurus otorisasi jika token tidak valid."""
+    """
+    Mendapatkan objek layanan Google Drive. 
+    Mengurus otorisasi jika token tidak valid dan memberikan pesan kesalahan yang jelas.
+    """
     creds = None
     
     try:
-        # Coba muat kredensial dari environment variable terlebih dahulu
-        token_json_str = os.getenv("TOKEN_FILE")
-        if token_json_str:
-            creds = Credentials.from_authorized_user_info(json.loads(token_json_str), SCOPES)
-    except Exception as e:
-        print(f"Gagal memuat token dari environment variable: {e}")
-        
-    if not creds and os.path.exists(TOKEN_FILE):
-        try:
+        # Coba muat kredensial dari file token yang disimpan
+        if os.path.exists(TOKEN_FILE):
             creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
-        except Exception as e:
-            print(f"Gagal memuat token dari file lokal: {e}")
-            
+    except Exception as e:
+        print(f"Gagal memuat token dari file lokal: {e}")
+        flash("Gagal memuat kredensial dari file. Silakan otorisasi ulang.", "error")
+        return None
+
     if not creds:
+        flash("Tidak ada kredensial otorisasi yang ditemukan. Silakan otorisasi.", "error")
         return None
 
     # Jika kredensial ada, periksa validitasnya
     if creds.expired and creds.refresh_token:
         try:
             creds.refresh(Request())
+            # Simpan kembali token yang sudah diperbarui
+            with open(TOKEN_FILE, 'w') as token:
+                token.write(creds.to_json())
         except Exception as e:
             print(f"Gagal me-refresh token: {e}")
             flash("Sesi Google Drive Anda telah berakhir. Silakan otorisasi ulang.", "error")
@@ -82,9 +83,11 @@ def get_drive_service():
 
     try:
         service = build("drive", "v3", credentials=creds)
+        # Lakukan panggilan API sederhana untuk menguji layanan
+        service.files().list(pageSize=1, fields="files(id)").execute()
         return service
     except Exception as e:
-        print(f"Error saat membangun layanan Drive: {e}")
+        print(f"Error saat membangun layanan Drive atau saat otorisasi: {e}")
         flash("Gagal terhubung ke Google Drive. Silakan otorisasi ulang.", "error")
         return None
 
