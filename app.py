@@ -41,40 +41,32 @@ CLIENT_SECRETS = json.loads(os.getenv("GOOGLE_CREDENTIALS"))
 TOKEN_FILE = "token.json"
 
 # app.py
-
 def get_drive_service():
     creds = None
-    
-    # Ambil token dari environment variable jika tersedia
+
+    # Coba ambil dari environment variable
     token_json_str = os.getenv("TOKEN_FILE")
     if token_json_str:
         try:
-            # Gunakan json.loads untuk mengubah string menjadi objek Python
             token_info = json.loads(token_json_str)
-            # Gunakan from_authorized_user_info untuk membaca dari objek Python
             creds = Credentials.from_authorized_user_info(token_info, SCOPES)
-            if creds.valid:
-                print("Token berhasil dimuat dari environment variable.")
-            else:
-                print("Token tidak valid, perlu refresh atau otorisasi ulang.")
-                creds = None
         except Exception as e:
             print(f"Gagal memuat token dari environment variable: {e}")
             creds = None
-    
-    # Jika token tidak ada di environment variable, cek file lokal
+
+    # Jika tidak ada di env, coba dari file lokal
     if creds is None and os.path.exists(TOKEN_FILE):
         creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
 
-    # ... Sisa kode otorisasi seperti sebelumnya
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            print("Token kadaluwarsa, mencoba refresh...")
+    # Jika token masih tidak valid, coba refresh
+    if creds and not creds.valid:
+        if creds.expired and creds.refresh_token:
             creds.refresh(Request())
-            # Simpan token yang diperbarui ke environment variable atau file
-            print("Token berhasil diperbarui.")
         else:
             return None # Kembali ke halaman otorisasi
+
+    if not creds:
+        return None # Kembali ke halaman otorisasi
 
     try:
         service = build("drive", "v3", credentials=creds)
