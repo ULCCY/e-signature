@@ -21,8 +21,14 @@ from datetime import datetime
 load_dotenv()
 SECRET_KEY = os.getenv("SECRET_KEY")
 # Periksa apakah FOLDERS dan FOLDER_PASSWORDS sudah dimuat
-FOLDERS = json.loads(os.getenv("FOLDERS"))
-FOLDER_PASSWORDS = json.loads(os.getenv("FOLDER_PASSWORDS"))
+try:
+    FOLDERS = json.loads(os.getenv("FOLDERS"))
+    FOLDER_PASSWORDS = json.loads(os.getenv("FOLDER_PASSWORDS"))
+except (json.JSONDecodeError, TypeError) as e:
+    print(f"Error: Variabel environment FOLDERS atau FOLDER_PASSWORDS tidak valid. {e}")
+    FOLDERS = {}
+    FOLDER_PASSWORDS = {}
+
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
@@ -42,30 +48,36 @@ TOKEN_FILE = "token.json"
 
 # app.py
 def get_drive_service():
+    """Mendapatkan objek layanan Google Drive. Mengurus otorisasi jika token tidak valid."""
     creds = None
     
-    # Coba ambil dari environment variable
-    token_json_str = os.getenv("TOKEN_FILE")
-    if token_json_str:
+    try:
+        # Coba muat kredensial dari environment variable terlebih dahulu
+        token_json_str = os.getenv("TOKEN_FILE")
+        if token_json_str:
+            creds = Credentials.from_authorized_user_info(json.loads(token_json_str), SCOPES)
+    except Exception as e:
+        print(f"Gagal memuat token dari environment variable: {e}")
+        
+    if not creds and os.path.exists(TOKEN_FILE):
         try:
-            token_info = json.loads(token_json_str)
-            creds = Credentials.from_authorized_user_info(token_info, SCOPES)
+            creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
         except Exception as e:
-            print(f"Gagal memuat token dari environment variable: {e}")
-            creds = None
-    
-    # Jika tidak ada di env, coba dari file lokal
-    if creds is None and os.path.exists(TOKEN_FILE):
-        creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
-
-    # Jika token masih tidak valid, coba refresh
-    if creds and not creds.valid:
-        if creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            return None # Kembali ke halaman otorisasi
-
+            print(f"Gagal memuat token dari file lokal: {e}")
+            
     if not creds:
+        return None
+
+    # Jika kredensial ada, periksa validitasnya
+    if creds.expired and creds.refresh_token:
+        try:
+            creds.refresh(Request())
+        except Exception as e:
+            print(f"Gagal me-refresh token: {e}")
+            flash("Sesi Google Drive Anda telah berakhir. Silakan otorisasi ulang.", "error")
+            return None
+    elif not creds.valid:
+        flash("Token otorisasi tidak valid. Silakan otorisasi ulang.", "error")
         return None
 
     try:
@@ -73,6 +85,7 @@ def get_drive_service():
         return service
     except Exception as e:
         print(f"Error saat membangun layanan Drive: {e}")
+        flash("Gagal terhubung ke Google Drive. Silakan otorisasi ulang.", "error")
         return None
 
 # --- FUNGSI DRIVE API DIUBAH UNTUK MENGGUNAKAN FUNGSI BARU ---
@@ -80,6 +93,9 @@ def get_files(folder_id):
     """Mengambil daftar file di dalam folder Google Drive."""
     try:
         service = get_drive_service()
+        if not service:
+            return []
+            
         results = service.files().list(
             q=f"'{folder_id}' in parents and trashed = false",
             pageSize=100,
@@ -95,6 +111,8 @@ def get_file_by_id(file_id):
     """Mengambil metadata file berdasarkan ID-nya."""
     try:
         service = get_drive_service()
+        if not service:
+            return None
         return service.files().get(fileId=file_id, fields="id, name, parents").execute()
     except Exception as e:
         print(f"Error saat mengambil file dengan ID {file_id}: {e}")
@@ -104,6 +122,10 @@ def move_file(file_id, new_parent_id):
     """Memindahkan file dari satu folder ke folder lain."""
     try:
         service = get_drive_service()
+        if not service:
+            flash("Gagal terhubung ke Google Drive. Tidak dapat memindahkan file.", "error")
+            return False
+
         file = service.files().get(fileId=file_id, fields="parents").execute()
         previous_parents = ",".join(file.get("parents"))
         service.files().update(
@@ -115,6 +137,7 @@ def move_file(file_id, new_parent_id):
         return True
     except Exception as e:
         print(f"Error saat memindahkan file: {e}")
+        flash(f"Error: Gagal memindahkan file. {e}", "error")
         return False
 
 def add_signature_to_pdf(input_pdf_path, signature_data_url, keyword):
@@ -187,7 +210,7 @@ def oauth2callback():
 def index():
     service = get_drive_service()
     if service is None:
-        # Jika tidak ada kredensial, alihkan pengguna ke otorisasi
+        flash("Gagal terhubung ke Google Drive. Silakan otorisasi ulang.", "error")
         return redirect(url_for('authorize'))
     
     """Halaman utama, menampilkan daftar folder berdasarkan grup."""
@@ -371,6 +394,10 @@ def download_file_thread(file_id):
     global DOWNLOAD_STATUS
     try:
         service = get_drive_service()
+        if not service:
+            DOWNLOAD_STATUS[file_id] = "error"
+            return
+            
         file_metadata = service.files().get(fileId=file_id).execute()
         filename = file_metadata.get("name")
         temp_pdf_path = os.path.join(TEMP_DIR, filename)
@@ -399,6 +426,10 @@ def check_ready(file_id):
 def download_pdf(file_id):
     """Mengirim file PDF yang sudah diunduh ke browser untuk pratinjau."""
     service = get_drive_service()
+    if not service:
+        flash("Gagal terhubung ke Google Drive. Silakan otorisasi ulang.", "error")
+        return redirect(url_for("authorize"))
+        
     file_metadata = service.files().get(fileId=file_id).execute()
     filename = file_metadata.get("name")
     return send_from_directory(TEMP_DIR, filename, mimetype=mimetypes.guess_type(filename)[0])
@@ -408,7 +439,8 @@ def preview_file(file_id):
     """Menampilkan halaman pratinjau dan tanda tangan."""
     file = get_file_by_id(file_id)
     if not file:
-        return "File tidak ditemukan.", 404
+        flash("File tidak ditemukan atau gagal dimuat.", "error")
+        return redirect(url_for("index"))
     
     folder_id = file.get('parents')[0]
     folder_name = get_folder_name_by_id(folder_id)
@@ -437,6 +469,9 @@ def save_signature():
     """Menerima tanda tangan, menambahkan ke PDF, mengunggah kembali, memindahkan, dan mengganti nama file."""
     try:
         service = get_drive_service()
+        if not service:
+            return "Gagal terhubung ke Google Drive. Silakan otorisasi ulang.", 500
+            
         data = request.json
         file_id = data.get("file_id")
         folder_name = data.get("folder")
