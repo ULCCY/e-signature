@@ -43,7 +43,7 @@ TOKEN_FILE = "token.json"
 # app.py
 def get_drive_service():
     creds = None
-
+    
     # Coba ambil dari environment variable
     token_json_str = os.getenv("TOKEN_FILE")
     if token_json_str:
@@ -53,7 +53,7 @@ def get_drive_service():
         except Exception as e:
             print(f"Gagal memuat token dari environment variable: {e}")
             creds = None
-
+    
     # Jika tidak ada di env, coba dari file lokal
     if creds is None and os.path.exists(TOKEN_FILE):
         creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
@@ -66,7 +66,7 @@ def get_drive_service():
             return None # Kembali ke halaman otorisasi
 
     if not creds:
-        return None # Kembali ke halaman otorisasi
+        return None
 
     try:
         service = build("drive", "v3", credentials=creds)
@@ -235,11 +235,9 @@ def view_folder(folder_id):
         flash("Folder tidak ditemukan.", "error")
         return redirect(url_for("index"))
 
-    # Jika folder dilindungi kata sandi, periksa otentikasi
     if folder_name in FOLDER_PASSWORDS:
         password_from_form = request.form.get("password")
         
-        # Jika metodenya GET (kunjungan pertama) atau kata sandi salah (POST)
         if request.method == "GET" or password_from_form != FOLDER_PASSWORDS.get(folder_name):
             if request.method == "POST":
                 flash("Kata sandi salah. Silakan coba lagi.", "error")
@@ -272,16 +270,13 @@ def view_folder(folder_id):
 @app.route("/upload_file", methods=["POST"])
 def upload_file():
     target_folder_id = request.form.get("folder_id")
-    folder_name = FOLDERS.get(target_folder_id)
-
-    # Periksa ulang kata sandi di sini untuk keamanan
-    password_from_form = request.form.get("password")
-    if folder_name in FOLDER_PASSWORDS and password_from_form != FOLDER_PASSWORDS.get(folder_name):
-        flash("Kata sandi salah. Silakan coba lagi.", "error")
-        return redirect(url_for("view_folder", folder_id=target_folder_id))
     
     try:
         service = get_drive_service()
+        if service is None:
+            flash("Gagal terhubung ke Google Drive. Silakan otorisasi ulang.", "error")
+            return redirect(url_for("authorize"))
+
         uploaded_file = request.files.get("file")
         if not uploaded_file or uploaded_file.filename == "":
             flash("Tidak ada file yang dipilih.", "error")
