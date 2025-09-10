@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Masukkan Kode Akses</title>
+    <title>Otorisasi Google Drive</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body {
@@ -16,31 +16,31 @@
     <!-- Kontainer Utama -->
     <div class="bg-white p-8 rounded-xl shadow-md w-full max-w-sm text-center">
         <h2 class="text-2xl font-semibold text-gray-800 mb-6">
-            🔒 Masukkan Kode Akses
+            <span class="text-blue-600">Google Drive</span> Otorisasi
         </h2>
         
         <p class="text-gray-600 mb-6">
-            Silakan masukkan kode akses untuk melanjutkan.
+            Aplikasi ini memerlukan akses ke Google Drive Anda untuk berfungsi. Silakan klik tombol di bawah untuk melanjutkan.
         </p>
-
-        <!-- Formulir -->
-        <form method="POST" class="space-y-4">
-            <div>
-                <label for="code" class="sr-only">Kode Akses</label>
-                <input 
-                    type="password" 
-                    id="code" 
-                    name="code" 
-                    placeholder="Kode akses" 
-                    required 
-                    class="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-400"
-                >
+        
+        <!-- Pesan Flash -->
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+            <div class="bg-{{ 'red' if category == 'error' else 'green' }}-100 text-{{ 'red' if category == 'error' else 'green' }}-700 p-3 mb-4 rounded-lg">
+                {{ message }}
             </div>
+            {% endfor %}
+        {% endif %}
+        {% endwith %}
+
+        <!-- Formulir Otentikasi -->
+        <form action="{{ url_for('authorize') }}" method="GET">
             <button 
                 type="submit"
                 class="w-full bg-blue-600 text-white font-semibold py-2 rounded hover:bg-blue-700 transition duration-200"
             >
-                Lanjutkan
+                Otorisasi dengan Google Drive
             </button>
         </form>
     </div>

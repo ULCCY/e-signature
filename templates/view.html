@@ -2,6 +2,7 @@
 <html lang="id">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Preview & Tanda Tangan</title>
     <style>
         body {
@@ -15,12 +16,20 @@
             color: #222;
             margin-bottom: 10px;
         }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: #fff;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
         iframe {
             width: 100%;
             height: 600px;
             border: 1px solid #ddd;
             margin-bottom: 25px;
-            border-radius: 6px;
+            border-radius: 8px;
             background: #fff;
         }
         .signature-area {
@@ -34,12 +43,19 @@
             border: 2px dashed #666;
             border-radius: 6px;
             display: block;
+            width: 100%;
+            height: 150px;
             margin: 15px 0;
             background: #fafafa;
         }
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            margin-top: 20px;
+        }
         .btn {
             padding: 10px 20px;
-            margin-right: 10px;
             border: none;
             border-radius: 6px;
             font-weight: bold;
@@ -54,7 +70,7 @@
             background-color: #f44336;
             color: white;
         }
-        .btn:hover {
+        .btn:hover:not(:disabled) {
             transform: translateY(-2px);
             opacity: 0.95;
         }
@@ -82,64 +98,119 @@
             border: 1px solid #bbb;
             border-radius: 4px;
         }
-        /* Style untuk tombol loading */
-        .btn-save:disabled {
+        .btn:disabled {
             background-color: #ccc;
             cursor: not-allowed;
+        }
+        /* Modal Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .modal-content {
+            background: #fff;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            text-align: center;
+            max-width: 400px;
+            width: 90%;
+        }
+        .modal-buttons {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-top: 20px;
+        }
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border-left-color: #4CAF50;
+            animation: spin 1s ease infinite;
+            margin: 20px auto 0;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
         }
     </style>
 </head>
 <body>
+    <div class="container">
+        <h2>Preview Dokumen</h2>
+        <iframe src="{{ url_for('preview_file', file_id=file_id) }}"></iframe>
 
-    <h2>Preview Dokumen</h2>
-    <iframe src="{{ url_for('preview_file', file_id=file_id) }}"></iframe>
+        <div class="signature-area">
+            <h3>Silakan Tanda Tangan:</h3>
+            <canvas id="signature-pad" width="400" height="150"></canvas>
 
-    <div class="signature-area">
-        <h3>Silakan Tanda Tangan:</h3>
-        <canvas id="signature-pad" width="400" height="150"></canvas>
-
-        <button type="button" class="btn btn-clear" id="clear">Bersihkan</button>
-        <button type="button" class="btn btn-save" id="saveBtn">Simpan Tanda Tangan</button>
-
-        {% if folder == "01 - Pengajuan Awal" %}
-        <div class="option-box">
-            <h3>Pilih Jenis Pengajuan & Periode:</h3>
-
-            <div class="radio-group">
-                <strong>Grup Rabat:</strong><br>
-                <label><input type="radio" name="prefix" value="SR" required> SR</label>
-                <label><input type="radio" name="prefix" value="MR"> MR</label>
-                <label><input type="radio" name="prefix" value="GR"> GR</label>
+            <div class="btn-group">
+                <button type="button" class="btn btn-clear" id="clear">Bersihkan</button>
+                <button type="button" class="btn btn-save" id="saveBtn">Simpan Tanda Tangan</button>
             </div>
 
-            <div class="radio-group">
-                <strong>Grup PRS:</strong><br>
-                <label><input type="radio" name="prefix" value="SP"> SP</label>
-                <label><input type="radio" name="prefix" value="MP"> MP</label>
-                <label><input type="radio" name="prefix" value="GP"> GP</label>
+            {% if folder == "01 - Pengajuan Awal" %}
+            <div class="option-box">
+                <h3>Pilih Jenis Pengajuan & Periode:</h3>
+
+                <div class="radio-group">
+                    <strong>Grup Rabat:</strong><br>
+                    <label><input type="radio" name="prefix" value="SR" required> SR</label>
+                    <label><input type="radio" name="prefix" value="MR"> MR</label>
+                    <label><input type="radio" name="prefix" value="GR"> GR</label>
+                </div>
+
+                <div class="radio-group">
+                    <strong>Grup PRS:</strong><br>
+                    <label><input type="radio" name="prefix" value="SP"> SP</label>
+                    <label><input type="radio" name="prefix" value="MP"> MP</label>
+                    <label><input type="radio" name="prefix" value="GP"> GP</label>
+                </div>
+
+                <div>
+                    <label><strong>Realisasi Bulan:</strong></label>
+                    <select name="bulan" id="bulan" required>
+                        {% for num, bulan in [('01','Januari'),('02','Februari'),('03','Maret'),
+                                             ('04','April'),('05','Mei'),('06','Juni'),
+                                             ('07','Juli'),('08','Agustus'),('09','September'),
+                                             ('10','Oktober'),('11','November'),('12','Desember')] %}
+                            <option value="{{ num }}">{{ bulan }}</option>
+                        {% endfor %}
+                    </select>
+
+                    <label for="tahun"><strong>Tahun:</strong></label>
+                    <select name="tahun" id="tahun" required>
+                        {% for y in range(2023, 2031) %}
+                            <option value="{{ y }}">{{ y }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
             </div>
+            {% endif %}
 
-            <div>
-                <label><strong>Realisasi Bulan:</strong></label>
-                <select name="bulan" id="bulan" required>
-                    {% for num, bulan in [('01','Januari'),('02','Februari'),('03','Maret'),
-                                          ('04','April'),('05','Mei'),('06','Juni'),
-                                          ('07','Juli'),('08','Agustus'),('09','September'),
-                                          ('10','Oktober'),('11','November'),('12','Desember')] %}
-                        <option value="{{ num }}">{{ bulan }}</option>
-                    {% endfor %}
-                </select>
-
-                <label for="tahun"><strong>Tahun:</strong></label>
-                <select name="tahun" id="tahun" required>
-                    {% for y in range(2023, 2031) %}
-                        <option value="{{ y }}">{{ y }}</option>
-                    {% endfor %}
-                </select>
+        </div>
+    </div>
+    
+    <!-- Custom Modal -->
+    <div id="status-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <p id="modal-message"></p>
+            <div id="modal-spinner" class="spinner hidden"></div>
+            <div id="modal-buttons" class="modal-buttons hidden">
+                <button id="confirm-button" class="btn btn-save">OK</button>
+                <button id="cancel-button" class="btn btn-clear">Batal</button>
             </div>
         </div>
-        {% endif %}
-
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
@@ -148,18 +219,90 @@
         const signaturePad = new SignaturePad(canvas);
         const clearBtn = document.getElementById('clear');
         const saveBtn = document.getElementById('saveBtn');
+        const statusModal = document.getElementById('status-modal');
+        const modalMessage = document.getElementById('modal-message');
+        const modalSpinner = document.getElementById('modal-spinner');
+        const modalButtons = document.getElementById('modal-buttons');
+        const confirmButton = document.getElementById('confirm-button');
+        const cancelButton = document.getElementById('cancel-button');
+
+        // State for modal callbacks
+        let onConfirmAction = null;
+        let onCancelAction = null;
+
+        function resizeCanvas() {
+            const ratio = Math.max(window.devicePixelRatio || 1, 1);
+            canvas.width = canvas.offsetWidth * ratio;
+            canvas.height = canvas.offsetHeight * ratio;
+            canvas.getContext('2d').scale(ratio, ratio);
+            signaturePad.clear();
+        }
+        
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        function showModal(message, showSpinner, showButtons, onConfirm = null, onCancel = null) {
+            modalMessage.textContent = message;
+            modalSpinner.classList.toggle('hidden', !showSpinner);
+            modalButtons.classList.toggle('hidden', !showButtons);
+            statusModal.classList.remove('hidden');
+
+            onConfirmAction = onConfirm;
+            onCancelAction = onCancel;
+            
+            confirmButton.classList.toggle('hidden', !showButtons);
+            cancelButton.classList.toggle('hidden', !showButtons);
+        }
+
+        confirmButton.addEventListener('click', () => {
+            if (onConfirmAction) {
+                onConfirmAction();
+            }
+            statusModal.classList.add('hidden');
+        });
+
+        cancelButton.addEventListener('click', () => {
+            if (onCancelAction) {
+                onCancelAction();
+            }
+            statusModal.classList.add('hidden');
+        });
 
         clearBtn.addEventListener('click', function () {
             signaturePad.clear();
         });
 
         saveBtn.addEventListener('click', function () {
+            let message = "";
+            let isValid = true;
+
             if (signaturePad.isEmpty()) {
-                alert("Silakan tanda tangan terlebih dahulu.");
+                message = "Silakan tanda tangan terlebih dahulu.";
+                isValid = false;
+            }
+
+            {% if folder == "01 - Pengajuan Awal" %}
+            const prefixSelected = document.querySelector('input[name="prefix"]:checked');
+            if (!prefixSelected) {
+                message = "Pilih jenis pengajuan (SR/MR/GR/SP/MP/GP) terlebih dahulu!";
+                isValid = false;
+            }
+            {% endif %}
+
+            if (!isValid) {
+                showModal(message, false, false);
                 return;
             }
 
-            // Menonaktifkan tombol dan mengubah teks
+            showModal(
+                "Apakah Anda yakin ingin menyimpan dan melanjutkan?", 
+                false, 
+                true, 
+                processDocument
+            );
+        });
+
+        async function processDocument() {
             saveBtn.disabled = true;
             saveBtn.textContent = "Sedang Memproses...";
 
@@ -168,46 +311,45 @@
             const folderName = "{{ folder }}";
             let newFilename = null;
 
-            // Logika untuk folder "01 - Pengajuan Awal"
+            const requestBody = {
+                file_id: fileId,
+                folder: folderName,
+                signature: signatureData,
+            };
+
             {% if folder == "01 - Pengajuan Awal" %}
-                const prefixSelected = document.querySelector('input[name="prefix"]:checked');
-                if (!prefixSelected) {
-                    alert("Pilih jenis pengajuan (SR/MR/GR/SP/MP/GP) terlebih dahulu!");
-                    saveBtn.disabled = false;
-                    saveBtn.textContent = "Simpan Tanda Tangan";
-                    return;
-                }
-                const prefix = prefixSelected.value;
-                const bulan = document.getElementById('bulan').value;
-                const tahun = document.getElementById('tahun').value;
-                newFilename = `${prefix} ${bulan}${tahun}.pdf`;
+            const prefixSelected = document.querySelector('input[name="prefix"]:checked');
+            const prefix = prefixSelected.value;
+            const bulan = document.getElementById('bulan').value;
+            const tahun = document.getElementById('tahun').value;
+            newFilename = `${prefix} ${bulan}${tahun}.pdf`;
+            requestBody.new_filename = newFilename;
             {% endif %}
 
-            // Kirim data ke backend
-            fetch("{{ url_for('save_signature') }}", {
-                method: "POST",
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    file_id: fileId,
-                    folder: folderName,
-                    signature: signatureData,
-                    new_filename: newFilename
-                })
-            })
-            .then(response => {
+            showModal("Menyimpan tanda tangan dan memproses dokumen...", true, false);
+
+            try {
+                const response = await fetch("{{ url_for('save_signature') }}", {
+                    method: "POST",
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(requestBody)
+                });
+
                 if (!response.ok) {
                     throw new Error('Terjadi kesalahan saat menyimpan tanda tangan.');
                 }
-                window.location.href = "{{ url_for('index') }}";
-            })
-            .catch(error => {
-                alert(error.message);
+                
+                showModal("Dokumen berhasil ditandatangani dan dipindahkan.", false, false);
+                setTimeout(() => window.location.href = "{{ url_for('index') }}", 2000);
+
+            } catch (error) {
+                showModal("Terjadi kesalahan: " + error.message, false, false);
                 saveBtn.disabled = false;
                 saveBtn.textContent = "Simpan Tanda Tangan";
-            });
-        });
+            }
+        }
     </script>
 </body>
 </html>
