@@ -154,6 +154,12 @@ def oauth2callback():
     creds = flow.credentials
     with open(TOKEN_FILE, 'w') as token:
         token.write(creds.to_json())
+
+    # Tambahkan baris ini untuk mencetak token ke log
+    print("================== TOKEN.JSON START ==================")
+    print(creds.to_json())
+    print("================== TOKEN.JSON END ==================")
+
     flash("Otentikasi Google Drive berhasil!", "success")
     return redirect(url_for('index'))
 
