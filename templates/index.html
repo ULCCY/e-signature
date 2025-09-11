@@ -103,6 +103,7 @@
             text-align: center;
             margin-top: 20px;
             transition: background-color 0.3s ease;
+            display: block;
         }
         
         .folder-link.green {
@@ -115,6 +116,7 @@
         
         .folder-link.gray {
             background-color: #95a5a6;
+            cursor: not-allowed;
         }
     </style>
 </head>
@@ -131,7 +133,8 @@
                             <h3>{{ f.name }}</h3>
                             <p>Terdapat {{ f.count }} dokumen menunggu.</p>
                             
-                            <a href="{{ url_for('view_folder', folder_id=f.id) }}" class="folder-link green">
+                            <a href="{{ url_for('view_folder', folder_id=f.id) }}" 
+                                class="folder-link {% if f.count > 0 %}green{% else %}gray{% endif %}">
                                 Buka Folder
                             </a>
                             

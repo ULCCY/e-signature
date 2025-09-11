@@ -272,7 +272,7 @@ def authorize():
             "token_uri": "https://oauth2.googleapis.com/token",
         }
     }
-    flow = Flow.from_client_secrets_json(
+    flow = Flow.from_client_secrets_file(
         flow_data,
         scopes=OAUTH_SCOPES,
         redirect_uri=GOOGLE_REDIRECT_URI
@@ -301,7 +301,7 @@ def oauth2callback():
             "token_uri": "https://oauth2.googleapis.com/token",
         }
     }
-    flow = Flow.from_client_secrets_json(
+    flow = Flow.from_client_secrets_file(
         flow_data,
         scopes=OAUTH_SCOPES,
         state=state,
@@ -490,7 +490,7 @@ def preview_file(file_id):
     is_pengajuan_awal = folder_name == "01 - Pengajuan Awal"
     
     return render_template(
-        "preview.html", 
+        "view.html", 
         file_id=file.get('id'), 
         folder=folder_name, 
         folder_id=folder_id,
