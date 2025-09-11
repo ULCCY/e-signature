@@ -2,71 +2,152 @@
 <html lang="id">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>E-Signature Management</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <title>Digital Document Management</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
+        :root {
+            --primary-color: #4CAF50;
+            --secondary-color: #f4f6f9;
+            --text-color: #333;
+            --card-bg: #fff;
+            --shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+            --border-radius: 12px;
+        }
+
         body {
-            font-family: 'Inter', sans-serif;
-            background-color: #f3f4f6;
+            font-family: 'Poppins', sans-serif;
+            margin: 0;
+            padding: 40px 20px;
+            background-color: var(--secondary-color);
+            color: var(--text-color);
+            line-height: 1.6;
         }
+
         .container {
-            max-width: 900px;
+            max-width: 1200px;
+            margin: auto;
         }
-        .card {
-            border-radius: 12px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+
+        h1 {
+            text-align: center;
+            font-weight: 700;
+            color: #2c3e50;
+            margin-bottom: 50px;
         }
-        .flash-message {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            z-index: 1000;
-            padding: 1rem 2rem;
-            border-radius: 0.5rem;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            animation: fadeOut 5s forwards;
+
+        h2 {
+            font-weight: 600;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #ecf0f1;
+            padding-bottom: 10px;
+            color: #34495e;
         }
-        @keyframes fadeOut {
-            0% { opacity: 1; }
-            80% { opacity: 1; }
-            100% { opacity: 0; display: none; }
+
+        .group {
+            margin-bottom: 50px;
+        }
+
+        .folder-boxes {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+
+        .folder {
+            flex: 1 1 280px;
+            padding: 25px;
+            background-color: var(--card-bg);
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .folder:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+        }
+
+        .folder h3 {
+            margin: 0 0 10px;
+            font-size: 1.25rem;
+            color: #2c3e50;
+        }
+
+        .status {
+            font-size: 0.9rem;
+            font-weight: 600;
+            padding: 5px 10px;
+            border-radius: 50px;
+            align-self: flex-start;
+            margin-top: 10px;
+        }
+
+        .status.available {
+            background-color: #e8f5e9;
+            color: #388e3c;
+        }
+        .status.empty {
+            background-color: #eceff1;
+            color: #7f8c8d;
+        }
+
+        .folder-link {
+            text-decoration: none;
+            color: white;
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+            text-align: center;
+            margin-top: 20px;
+            transition: background-color 0.3s ease;
+        }
+        
+        .folder-link.green {
+            background-color: var(--primary-color);
+        }
+        
+        .folder-link.green:hover {
+            background-color: #43a047;
+        }
+        
+        .folder-link.gray {
+            background-color: #95a5a6;
+            cursor: not-allowed;
         }
     </style>
 </head>
-<body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
+<body>
+    <div class="container">
+        <h1>📁 Digital Document Management</h1>
 
-    <!-- Flash Messages -->
-    {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-            {% for category, message in messages %}
-                <div class="flash-message {% if category == 'success' %}bg-green-500 text-white{% elif category == 'error' %}bg-red-500 text-white{% endif %}">
-                    {{ message }}
+        {% for group in ['Pengajuan Awal', 'Rabat', 'PRS', 'Final'] %}
+            <div class="group">
+                <h2>{{ group }}</h2>
+                <div class="folder-boxes">
+                    {% for f in group_data.get(group, []) %}
+                        <div class="folder">
+                            <h3>{{ f.name }}</h3>
+                            <p>Terdapat {{ f.count }} dokumen menunggu.</p>
+                            
+                            {% if f.count > 0 %}
+                                <a href="{{ url_for('view_folder', folder_id=f.id) }}" class="folder-link green">
+                                    Buka Folder
+                                </a>
+                                <span class="status available">Dokumen Tersedia</span>
+                            {% else %}
+                                <a href="#" class="folder-link gray" onclick="return false;">
+                                    Buka Folder
+                                </a>
+                                <span class="status empty">Tidak ada dokumen</span>
+                            {% endif %}
+                        </div>
+                    {% endfor %}
                 </div>
-            {% endfor %}
-        {% endif %}
-    {% endwith %}
-
-    <div class="container mx-auto p-6 bg-white rounded-xl shadow-lg">
-        <div class="flex flex-col md:flex-row items-center justify-between mb-8">
-            <h1 class="text-3xl md:text-4xl font-bold text-gray-800 text-center mb-4 md:mb-0">Manajemen Dokumen</h1>
-            <a href="/authorize" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition duration-300 ease-in-out transform hover:scale-105">
-                Otorisasi Google Drive
-            </a>
-        </div>
-
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {% for folder_name, folder_data in group_data.items() %}
-            <a href="{{ url_for('view_folder', folder_id=folder_data['id']) }}" class="card bg-white p-6 flex flex-col items-center text-center transition duration-300 ease-in-out transform hover:scale-105 hover:bg-gray-50 border border-gray-200">
-                <div class="text-4xl text-blue-600 mb-4">📂</div>
-                <h2 class="text-xl font-semibold text-gray-700">{{ folder_name }}</h2>
-                <p class="text-gray-500 mt-2">
-                    {{ folder_data.count }} Dokumen
-                </p>
-            </a>
-            {% endfor %}
-        </div>
+            </div>
+        {% endfor %}
     </div>
 </body>
 </html>

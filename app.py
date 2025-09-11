@@ -21,57 +21,47 @@ from oauthlib.oauth2.rfc6749.errors import AccessDeniedError
 # Muat variabel dari file .env
 load_dotenv()
 SECRET_KEY = os.getenv("SECRET_KEY")
-try:
-    FOLDERS = json.loads(os.getenv("FOLDERS"))
-    FOLDER_PASSWORDS = json.loads(os.getenv("FOLDER_PASSWORDS"))
-except (json.JSONDecodeError, TypeError):
-    FOLDERS = {}
-    FOLDER_PASSWORDS = {}
-    print("Warning: FOLDERS or FOLDER_PASSWORDS environment variables are missing or malformed.")
+# Periksa apakah FOLDERS dan FOLDER_PASSWORDS sudah dimuat
+FOLDERS = json.loads(os.getenv("FOLDERS"))
+FOLDER_PASSWORDS = json.loads(os.getenv("FOLDER_PASSWORDS"))
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
 
+# Direktori untuk file sementara
 TEMP_DIR = "temp"
 if not os.path.exists(TEMP_DIR):
     os.makedirs(TEMP_DIR)
 
+# Objek global untuk melacak status unduhan file
 DOWNLOAD_STATUS = {}
 
+# Konfigurasi OAuth 2.0
 SCOPES = ['https://www.googleapis.com/auth/drive']
 
 @app.route('/')
 def index():
-    creds_json = session.get('creds')
-    
-    # Inisialisasi group_data dengan struktur default,
-    # termasuk nama folder dan jumlah dokumen 0
-    group_data = {
-        'Pengajuan Awal': {'count': 0, 'id': FOLDERS.get('Pengajuan Awal', None)},
-        'Rabat': {'count': 0, 'id': FOLDERS.get('Rabat', None)},
-        'PRS': {'count': 0, 'id': FOLDERS.get('PRS', None)},
-        'Final': {'count': 0, 'id': FOLDERS.get('Final', None)},
-    }
-    
-    if creds_json:
-        creds = Credentials.from_authorized_user_info(json.loads(creds_json), SCOPES)
-        service = build('drive', 'v3', credentials=creds)
-        try:
-            # Panggil API Drive v3 untuk mendapatkan folder utama
-            for folder_name, data in group_data.items():
-                folder_id = data.get('id')
-                if folder_id:
-                    # Count documents inside the folder
-                    count_response = service.files().list(
-                        q=f"'{folder_id}' in parents and trashed=false and mimeType!='application/vnd.google-apps.folder'",
-                        fields="files(id)").execute()
-                    doc_count = len(count_response.get('files', []))
-                    group_data[folder_name]['count'] = doc_count
-        except Exception as e:
-            flash(f"Error accessing Google Drive: {e}", "error")
-            
-    return render_template('index.html', group_data=group_data)
+    creds = session.get('creds')
+    if not creds:
+        return render_template('index.html')
 
+    creds = Credentials.from_authorized_user_info(json.loads(creds), SCOPES)
+    service = build('drive', 'v3', credentials=creds)
+
+    try:
+        # Panggil API Drive v3
+        response = service.files().list(
+            q="'root' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false",
+            fields="nextPageToken, files(id, name)").execute()
+        
+        main_folders = {file['name']: file['id'] for file in response.get('files', [])}
+        
+        folders_with_passwords = {name: {'id': main_folders.get(name), 'password_required': name in FOLDER_PASSWORDS} for name in FOLDERS.keys()}
+
+        return render_template('index.html', folders=folders_with_passwords)
+    except Exception as e:
+        flash(f"Error accessing Google Drive: {e}", "error")
+        return redirect(url_for('index'))
 
 @app.route('/authorize')
 def authorize():
@@ -94,6 +84,7 @@ def oauth2callback():
         flash("State parameter mismatch.", "error")
         return redirect(url_for('index'))
 
+    # Menggunakan try-except untuk menangani AccessDeniedError
     try:
         flow = InstalledAppFlow.from_client_config(
             json.loads(os.getenv("CLIENT_SECRETS")),
@@ -115,27 +106,32 @@ def oauth2callback():
 
 @app.route('/view_folder/<folder_id>')
 def view_folder(folder_id):
-    creds_json = session.get('creds')
-    if not creds_json:
+    creds = session.get('creds')
+    if not creds:
         return redirect(url_for('authorize'))
     
+    # Periksa apakah folder_id ada di FOLDERS
     folder_name = next((name for name, id in FOLDERS.items() if id == folder_id), None)
     if folder_name is None:
         flash("Folder not found.", "error")
         return redirect(url_for('index'))
 
+    # Periksa password jika diperlukan
     password = request.args.get('password')
     if folder_name in FOLDER_PASSWORDS:
         if not password or password != FOLDER_PASSWORDS[folder_name]:
+            # Jika password salah, tampilkan pesan error dan kembali
             flash("Incorrect password for this folder.", "error")
             return redirect(url_for('index'))
     
+    # Simpan folder saat ini di sesi
     session['current_folder_id'] = folder_id
 
-    creds = Credentials.from_authorized_user_info(json.loads(creds_json), SCOPES)
+    creds = Credentials.from_authorized_user_info(json.loads(creds), SCOPES)
     service = build('drive', 'v3', credentials=creds)
 
     try:
+        # Dapatkan file dan folder di dalam folder yang dipilih
         response = service.files().list(
             q=f"'{folder_id}' in parents and trashed=false",
             fields="files(id, name, mimeType, modifiedTime, size)").execute()
@@ -167,8 +163,8 @@ def view_folder(folder_id):
 
 @app.route('/upload_file', methods=['POST'])
 def upload_file():
-    creds_json = session.get('creds')
-    if not creds_json:
+    creds = session.get('creds')
+    if not creds:
         return jsonify({'error': 'Unauthorized'}), 401
 
     if 'file' not in request.files:
@@ -179,7 +175,7 @@ def upload_file():
     if file.filename == '':
         return jsonify({'error': 'No selected file'}), 400
     
-    creds = Credentials.from_authorized_user_info(json.loads(creds_json), SCOPES)
+    creds = Credentials.from_authorized_user_info(json.loads(creds), SCOPES)
     service = build('drive', 'v3', credentials=creds)
     
     current_folder_id = session.get('current_folder_id')
@@ -190,7 +186,10 @@ def upload_file():
         filename = secure_filename(file.filename)
         mime_type, _ = mimetypes.guess_type(filename)
         
+        # Baca konten file
         file_content = file.read()
+        
+        # Buat MediaIoBaseUpload
         media = MediaIoBaseUpload(io.BytesIO(file_content), mime_type, resumable=True)
         
         file_metadata = {
@@ -214,8 +213,8 @@ def upload_file():
 
 @app.route('/create_pdf', methods=['POST'])
 def create_pdf():
-    creds_json = session.get('creds')
-    if not creds_json:
+    creds = session.get('creds')
+    if not creds:
         return jsonify({'error': 'Unauthorized'}), 401
 
     data = request.get_json()
@@ -225,7 +224,7 @@ def create_pdf():
     if not text:
         return jsonify({'error': 'No text provided'}), 400
 
-    creds = Credentials.from_authorized_user_info(json.loads(creds_json), SCOPES)
+    creds = Credentials.from_authorized_user_info(json.loads(creds), SCOPES)
     service = build('drive', 'v3', credentials=creds)
     
     current_folder_id = session.get('current_folder_id')
@@ -233,6 +232,7 @@ def create_pdf():
         return jsonify({'error': 'No active folder selected'}), 400
 
     try:
+        # Buat file PDF di memori
         buffer = io.BytesIO()
         c = pdf_canvas.Canvas(buffer, pagesize=A4)
         c.drawString(100, 750, "Generated PDF from Text")
@@ -241,6 +241,7 @@ def create_pdf():
         c.save()
         
         buffer.seek(0)
+        
         media = MediaIoBaseUpload(buffer, 'application/pdf', resumable=True)
         
         file_metadata = {
@@ -264,8 +265,8 @@ def create_pdf():
 
 @app.route('/sign_document', methods=['POST'])
 def sign_document():
-    creds_json = session.get('creds')
-    if not creds_json:
+    creds = session.get('creds')
+    if not creds:
         return jsonify({'error': 'Unauthorized'}), 401
 
     data = request.get_json()
@@ -275,7 +276,7 @@ def sign_document():
     if not file_id or not signature_base64:
         return jsonify({'error': 'File ID or signature not provided'}), 400
 
-    creds = Credentials.from_authorized_user_info(json.loads(creds_json), SCOPES)
+    creds = Credentials.from_authorized_user_info(json.loads(creds), SCOPES)
     service = build('drive', 'v3', credentials=creds)
     
     try:
@@ -288,6 +289,7 @@ def sign_document():
             status, done = downloader.next_chunk()
         file_data.seek(0)
         
+        # Tanda tangani dokumen
         signature_image = io.BytesIO(base64.b64decode(signature_base64.split(',')[1]))
         
         reader = PdfReader(file_data)
@@ -296,21 +298,24 @@ def sign_document():
         for page in reader.pages:
             writer.add_page(page)
 
+        # Buat PDF untuk tanda tangan
         sig_buffer = io.BytesIO()
         sig_canvas = pdf_canvas.Canvas(sig_buffer, pagesize=A4)
-        sig_canvas.drawInlineImage(signature_image, 100, 100, width=50, height=50)
+        sig_canvas.drawInlineImage(signature_image, 100, 100, width=50, height=50) # Tentukan posisi tanda tangan
         sig_canvas.showPage()
         sig_canvas.save()
         sig_buffer.seek(0)
         
         sig_reader = PdfReader(sig_buffer)
         
+        # Gabungkan tanda tangan dengan dokumen asli
         writer.add_page(sig_reader.pages[0])
         
         output_buffer = io.BytesIO()
         writer.write(output_buffer)
         output_buffer.seek(0)
 
+        # Upload kembali file yang ditandatangani
         media = MediaIoBaseUpload(output_buffer, 'application/pdf', resumable=True)
         
         updated_file = service.files().update(
@@ -328,8 +333,8 @@ def sign_document():
 
 @app.route('/move_file', methods=['POST'])
 def move_file():
-    creds_json = session.get('creds')
-    if not creds_json:
+    creds = session.get('creds')
+    if not creds:
         return jsonify({'error': 'Unauthorized'}), 401
 
     data = request.get_json()
@@ -338,7 +343,7 @@ def move_file():
     if not file_id:
         return jsonify({'error': 'File ID not provided'}), 400
 
-    creds = Credentials.from_authorized_user_info(json.loads(creds_json), SCOPES)
+    creds = Credentials.from_authorized_user_info(json.loads(creds), SCOPES)
     service = build('drive', 'v3', credentials=creds)
     
     current_folder_id = session.get('current_folder_id')
@@ -353,12 +358,15 @@ def move_file():
         if not current_folder_name:
             return jsonify({'error': 'Current folder not in configured folders'}), 400
 
+        # Logic for determining the next folder based on the file name
         filename = file.get('name')
         
+        # Mendapatkan nama folder saat ini
         folder_name = next((name for name, id in FOLDERS.items() if id == current_folder_id), None)
         if not folder_name:
             return jsonify({'error': 'Current folder not recognized'}), 400
         
+        # Aturan pemetaan folder
         folder_mapping = {
             "01 - Pengajuan Awal": {"SR": "02A - SPV HRGA", "MR": "02B - PAMO", "GP": "02B - PAMO",
                 "SP": "02A - SPV HRGA", "MP": "02A - SPV HRGA", "GP": "02A - SPV HRGA",
@@ -373,12 +381,13 @@ def move_file():
             "04C - General": {"GP": "05 - Final"},
         }
         
-        kode_pengajuan_to_map = filename.split()[1][:2].upper() if len(filename.split()) > 1 else ""
-
+        kode_pengajuan_to_map = kode_pengajuan if folder_name == "01 - Pengajuan Awal" else filename.split()[1][:2].upper()
+        
         target_folder_name = folder_mapping.get(folder_name, {}).get(kode_pengajuan_to_map)
         if target_folder_name:
             target_id = FOLDERS.get(target_folder_name)
             if target_id:
+                # Pindahkan file
                 service.files().update(
                     fileId=file_id,
                     addParents=target_id,
@@ -401,19 +410,21 @@ def move_file():
 
 @app.route('/download/<file_id>')
 def download_file(file_id):
-    creds_json = session.get('creds')
-    if not creds_json:
+    creds = session.get('creds')
+    if not creds:
         return jsonify({'error': 'Unauthorized'}), 401
 
-    creds = Credentials.from_authorized_user_info(json.loads(creds_json), SCOPES)
+    creds = Credentials.from_authorized_user_info(json.loads(creds), SCOPES)
     service = build('drive', 'v3', credentials=creds)
 
     try:
         file = service.files().get(fileId=file_id, fields='name').execute()
         filename = file.get('name')
         
+        # Inisialisasi status unduhan
         DOWNLOAD_STATUS[file_id] = {'progress': 0, 'done': False, 'error': None}
 
+        # Gunakan threading untuk unduhan di latar belakang
         thread = threading.Thread(target=perform_download, args=(creds, file_id, filename))
         thread.daemon = True
         thread.start()
@@ -432,12 +443,13 @@ def perform_download(creds, file_id, filename):
         file_path = os.path.join(TEMP_DIR, filename)
         
         request_download = service.files().get_media(fileId=file_id)
-        downloader = MediaIoBaseDownload(io.FileIO(file_path, 'wb'), request_download, chunksize=1024 * 1024)
-        done = False
-        while done is False:
-            status, done = downloader.next_chunk()
-            progress = int(status.progress() * 100)
-            DOWNLOAD_STATUS[file_id]['progress'] = progress
+        with open(file_path, 'wb') as fh:
+            downloader = MediaIoBaseDownload(fh, request_download, chunksize=1024 * 1024)
+            done = False
+            while done is False:
+                status, done = downloader.next_chunk()
+                progress = int(status.progress() * 100)
+                DOWNLOAD_STATUS[file_id]['progress'] = progress
         
         DOWNLOAD_STATUS[file_id]['done'] = True
     except Exception as e:
@@ -459,6 +471,8 @@ def serve_file(file_id):
     if not file_name:
         return jsonify({'error': 'File not found'}), 404
 
+    # Ambil nama file dari status unduhan
+    # Ini mungkin perlu diperbaiki agar lebih dinamis, tapi untuk contoh ini cukup
     file_path = os.path.join(TEMP_DIR, file_name)
     if os.path.exists(file_path):
         return send_from_directory(TEMP_DIR, file_name, as_attachment=True)
@@ -467,11 +481,11 @@ def serve_file(file_id):
 
 @app.route('/delete_file/<file_id>')
 def delete_file(file_id):
-    creds_json = session.get('creds')
-    if not creds_json:
+    creds = session.get('creds')
+    if not creds:
         return jsonify({'error': 'Unauthorized'}), 401
 
-    creds = Credentials.from_authorized_user_info(json.loads(creds_json), SCOPES)
+    creds = Credentials.from_authorized_user_info(json.loads(creds), SCOPES)
     service = build('drive', 'v3', credentials=creds)
 
     try:
