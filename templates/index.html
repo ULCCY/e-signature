@@ -2,146 +2,57 @@
 <html lang="id">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Digital Document Management</title>
+    <!-- Use Tailwind CSS for modern, responsive styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
-        :root {
-            --primary-color: #4CAF50;
-            --secondary-color: #f4f6f9;
-            --text-color: #333;
-            --card-bg: #fff;
-            --shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-            --border-radius: 12px;
-        }
-
         body {
             font-family: 'Poppins', sans-serif;
-            margin: 0;
-            padding: 40px 20px;
-            background-color: var(--secondary-color);
-            color: var(--text-color);
-            line-height: 1.6;
-        }
-
-        .container {
-            max-width: 1200px;
-            margin: auto;
-        }
-
-        h1 {
-            text-align: center;
-            font-weight: 700;
-            color: #2c3e50;
-            margin-bottom: 50px;
-        }
-
-        h2 {
-            font-weight: 600;
-            margin-bottom: 20px;
-            border-bottom: 2px solid #ecf0f1;
-            padding-bottom: 10px;
-            color: #34495e;
-        }
-
-        .group {
-            margin-bottom: 50px;
-        }
-
-        .folder-boxes {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 20px;
-        }
-
-        .folder {
-            flex: 1 1 280px;
-            padding: 25px;
-            background-color: var(--card-bg);
-            border-radius: var(--border-radius);
-            box-shadow: var(--shadow);
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
-        }
-
-        .folder:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
-        }
-
-        .folder h3 {
-            margin: 0 0 10px;
-            font-size: 1.25rem;
-            color: #2c3e50;
-        }
-
-        .status {
-            font-size: 0.9rem;
-            font-weight: 600;
-            padding: 5px 10px;
-            border-radius: 50px;
-            align-self: flex-start;
-            margin-top: 10px;
-        }
-
-        .status.available {
-            background-color: #e8f5e9;
-            color: #388e3c;
-        }
-        .status.empty {
-            background-color: #eceff1;
-            color: #7f8c8d;
-        }
-
-        .folder-link {
-            text-decoration: none;
-            color: white;
-            padding: 12px 20px;
-            border-radius: 8px;
-            font-weight: 600;
-            text-align: center;
-            margin-top: 20px;
-            transition: background-color 0.3s ease;
-        }
-        
-        .folder-link.green {
-            background-color: var(--primary-color);
-        }
-        
-        .folder-link.green:hover {
-            background-color: #43a047;
-        }
-        
-        .folder-link.gray {
-            background-color: #95a5a6;
-            cursor: not-allowed;
         }
     </style>
 </head>
-<body>
-    <div class="container">
-        <h1>📁 Digital Document Management</h1>
+<body class="bg-gray-100 text-gray-800 antialiased leading-relaxed p-4 md:p-10">
+    <div class="container mx-auto max-w-7xl">
+        <h1 class="text-center text-4xl font-bold text-gray-800 mb-12 drop-shadow-sm">
+            📁 Digital Document Management
+        </h1>
 
+        <!-- Loop through each document group defined in the backend -->
         {% for group in ['Pengajuan Awal', 'Rabat', 'PRS', 'Final'] %}
-            <div class="group">
-                <h2>{{ group }}</h2>
-                <div class="folder-boxes">
+            <div class="mb-10">
+                <h2 class="text-2xl font-semibold text-gray-700 border-b-2 border-gray-200 pb-2 mb-6">
+                    {{ group }}
+                </h2>
+                <div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                    <!-- Loop through each folder within the current group -->
                     {% for f in group_data.get(group, []) %}
-                        <div class="folder">
-                            <h3>{{ f.name }}</h3>
-                            <p>Terdapat {{ f.count }} dokumen menunggu.</p>
-                            
+                        <div class="bg-white p-6 rounded-xl shadow-md flex flex-col justify-between transform transition duration-300 hover:scale-105 hover:shadow-lg">
+                            <div>
+                                <h3 class="text-xl font-bold text-gray-800 mb-2">{{ f.name }}</h3>
+                                <p class="text-gray-600 mb-4">Terdapat {{ f.count }} dokumen menunggu.</p>
+                            </div>
+
+                            <!-- Conditional rendering based on document count -->
                             {% if f.count > 0 %}
-                                <a href="{{ url_for('view_folder', folder_id=f.id) }}" class="folder-link green">
-                                    Buka Folder
-                                </a>
-                                <span class="status available">Dokumen Tersedia</span>
+                                <div class="flex flex-col items-start space-y-3 mt-4">
+                                    <span class="text-sm font-semibold px-3 py-1 rounded-full bg-green-100 text-green-600">
+                                        Dokumen Tersedia
+                                    </span>
+                                    <a href="{{ url_for('view_folder', folder_id=f.id) }}" class="w-full text-center text-white bg-green-600 hover:bg-green-700 font-semibold py-3 px-6 rounded-lg transition-colors duration-300">
+                                        Buka Folder
+                                    </a>
+                                </div>
                             {% else %}
-                                <a href="#" class="folder-link gray" onclick="return false;">
-                                    Buka Folder
-                                </a>
-                                <span class="status empty">Tidak ada dokumen</span>
+                                <div class="flex flex-col items-start space-y-3 mt-4">
+                                    <span class="text-sm font-semibold px-3 py-1 rounded-full bg-gray-200 text-gray-600">
+                                        Tidak ada dokumen
+                                    </span>
+                                    <a href="#" class="w-full text-center text-white bg-gray-400 font-semibold py-3 px-6 rounded-lg cursor-not-allowed">
+                                        Buka Folder
+                                    </a>
+                                </div>
                             {% endif %}
                         </div>
                     {% endfor %}
