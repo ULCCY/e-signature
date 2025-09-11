@@ -113,17 +113,58 @@ def get_authenticated_service():
 
 @app.route('/')
 def home():
-    return render_template('index.html', folders=FOLDERS)
+    group_data = {
+        'Pengajuan Awal': [
+            {'name': 'Proposal', 'count': 0, 'id': FOLDERS.get('Proposal', '')},
+            {'name': 'Dokumen Pendukung', 'count': 0, 'id': FOLDERS.get('Dokumen Pendukung', '')},
+            {'name': 'Legalitas', 'count': 0, 'id': FOLDERS.get('Legalitas', '')},
+        ],
+        'Rabat': [
+            {'name': 'Rabat Bulan Ini', 'count': 0, 'id': FOLDERS.get('Rabat Bulan Ini', '')},
+            {'name': 'Rabat Bulan Lalu', 'count': 0, 'id': FOLDERS.get('Rabat Bulan Lalu', '')},
+            {'name': 'Riwayat Rabat', 'count': 0, 'id': FOLDERS.get('Riwayat Rabat', '')},
+        ],
+        'PRS': [
+            {'name': 'PRS Tipe A', 'count': 0, 'id': FOLDERS.get('PRS Tipe A', '')},
+            {'name': 'PRS Tipe B', 'count': 0, 'id': FOLDERS.get('PRS Tipe B', '')},
+            {'name': 'PRS Tipe C', 'count': 0, 'id': FOLDERS.get('PRS Tipe C', '')},
+        ],
+        'Final': [
+            {'name': 'Dokumen Final', 'count': 0, 'id': FOLDERS.get('Dokumen Final', '')},
+            {'name': 'Arsip', 'count': 0, 'id': FOLDERS.get('Arsip', '')},
+            {'name': 'Laporan Tahunan', 'count': 0, 'id': FOLDERS.get('Laporan Tahunan', '')},
+        ],
+    }
+
+    # Anda bisa memperbarui 'count' di sini dengan data asli dari Google Drive jika diinginkan
+    # Contoh (memerlukan otorisasi):
+    # drive_service = get_service_account_service()
+    # if drive_service:
+    #     for group in group_data.values():
+    #         for folder in group:
+    #             if folder['id']:
+    #                 query = f"'{folder['id']}' in parents and trashed = false"
+    #                 results = drive_service.files().list(
+    #                     q=query,
+    #                     fields="files(id)",
+    #                     pageSize=1000
+    #                 ).execute()
+    #                 folder['count'] = len(results.get('files', []))
+
+    return render_template('index.html', group_data=group_data)
 
 @app.route('/login', methods=['POST'])
 def login():
-    selected_folder = request.form.get('folder')
+    selected_folder = request.form.get('folder_id')
     password = request.form.get('password')
 
-    if selected_folder in FOLDER_PASSWORDS and FOLDER_PASSWORDS[selected_folder] == password:
+    folder_name_to_id = {v: k for k, v in FOLDERS.items()}
+    selected_folder_name = folder_name_to_id.get(selected_folder)
+
+    if selected_folder_name in FOLDER_PASSWORDS and FOLDER_PASSWORDS[selected_folder_name] == password:
         session['logged_in'] = True
-        session['folder_name'] = selected_folder
-        session['folder_id'] = FOLDERS[selected_folder]
+        session['folder_name'] = selected_folder_name
+        session['folder_id'] = selected_folder
         # Redirect ke alur otorisasi Google setelah berhasil login
         return redirect(url_for('authorize'))
     else:

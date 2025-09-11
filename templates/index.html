@@ -13,8 +13,8 @@
     </style>
 </head>
 <body class="bg-slate-100 text-gray-800 antialiased leading-relaxed p-4 md:p-10">
-    <div class="container max-w-lg mx-auto p-4 md:p-8 text-center">
-        <h1 class="text-4xl md:text-5xl font-extrabold text-gray-900 mb-8">
+    <div class="container max-w-7xl mx-auto">
+        <h1 class="text-4xl md:text-5xl font-extrabold text-center text-gray-900 mb-12">
             <span class="inline-block mr-2 align-middle">📁</span> Digital Document Management
         </h1>
 
@@ -28,26 +28,76 @@
             {% endif %}
         {% endwith %}
 
-        <div class="bg-white p-6 md:p-8 rounded-2xl shadow-lg border border-gray-200">
-            <h2 class="text-2xl font-bold text-gray-800 mb-6 border-b-2 border-gray-200 pb-4">Masuk ke Folder Dokumen</h2>
-            <form action="{{ url_for('login') }}" method="post">
-                <div class="mb-4 text-left">
-                    <label for="folder" class="block mb-2 font-semibold text-gray-700">Pilih Folder</label>
-                    <select name="folder" id="folder" required class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 transition duration-200">
-                        {% for folder_name in folders %}
-                            <option value="{{ folder_name }}">{{ folder_name }}</option>
+        <form action="{{ url_for('login') }}" method="post" id="loginForm">
+            <input type="hidden" name="folder_id" id="folder_id">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+                {% for group_name, folders in group_data.items() %}
+                <div class="group">
+                    <h2 class="text-2xl font-bold mb-6 border-b-2 border-green-500 pb-3">{{ group_name }}</h2>
+                    <div class="flex flex-col gap-6">
+                        {% for f in folders %}
+                        <div class="folder bg-white p-6 rounded-xl shadow-lg transform transition duration-300 hover:scale-105 hover:shadow-xl">
+                            <h3 class="text-xl font-semibold text-gray-800 mb-2">{{ f.name }}</h3>
+                            <p class="text-sm text-gray-600 mb-4">Terdapat <span class="font-bold">{{ f.count }}</span> dokumen menunggu.</p>
+                            
+                            <div class="flex items-center justify-between mt-auto">
+                                {% if f.count > 0 %}
+                                    <button type="submit" data-folder-id="{{ f.id }}" class="folder-link bg-green-500 text-white py-2 px-4 rounded-lg font-semibold hover:bg-green-600 transition duration-300">
+                                        Buka Folder
+                                    </button>
+                                    <span class="status text-green-700 bg-green-200 text-xs font-semibold py-1 px-3 rounded-full">Dokumen Tersedia</span>
+                                {% else %}
+                                    <button type="button" class="folder-link bg-gray-400 text-white py-2 px-4 rounded-lg font-semibold cursor-not-allowed">
+                                        Buka Folder
+                                    </button>
+                                    <span class="status text-gray-500 bg-gray-200 text-xs font-semibold py-1 px-3 rounded-full">Tidak ada dokumen</span>
+                                {% endif %}
+                            </div>
+                        </div>
                         {% endfor %}
-                    </select>
+                    </div>
                 </div>
-                <div class="mb-6 text-left">
-                    <label for="password" class="block mb-2 font-semibold text-gray-700">Kata Sandi</label>
-                    <input type="password" name="password" id="password" required class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 transition duration-200">
+                {% endfor %}
+            </div>
+
+            <!-- Modal for password input -->
+            <div id="passwordModal" class="fixed inset-0 bg-gray-900 bg-opacity-75 hidden items-center justify-center p-4">
+                <div class="bg-white p-8 rounded-xl shadow-2xl max-w-sm w-full transform transition-all scale-95 duration-300 ease-out">
+                    <h4 class="text-2xl font-bold text-gray-800 mb-6 text-center">Masukkan Kata Sandi</h4>
+                    <input type="password" name="password" id="passwordInput" required class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 transition duration-200">
+                    <div class="flex justify-between gap-4">
+                        <button type="button" id="closeModalBtn" class="flex-1 py-3 bg-gray-300 text-gray-800 font-bold rounded-lg hover:bg-gray-400 transition duration-300">Batal</button>
+                        <button type="submit" class="flex-1 py-3 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition duration-300">Masuk</button>
+                    </div>
                 </div>
-                <button type="submit" class="w-full py-3 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition duration-300">
-                    Masuk
-                </button>
-            </form>
-        </div>
+            </div>
+        </form>
     </div>
+
+    <script>
+        const folderButtons = document.querySelectorAll('.folder-link');
+        const passwordModal = document.getElementById('passwordModal');
+        const loginForm = document.getElementById('loginForm');
+        const folderIdInput = document.getElementById('folder_id');
+        const closeModalBtn = document.getElementById('closeModalBtn');
+
+        folderButtons.forEach(button => {
+            if (button.dataset.folderId) {
+                button.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    folderIdInput.value = e.target.dataset.folderId;
+                    passwordModal.classList.remove('hidden');
+                    passwordModal.classList.add('flex');
+                    document.getElementById('passwordInput').focus();
+                });
+            }
+        });
+
+        closeModalBtn.addEventListener('click', () => {
+            passwordModal.classList.remove('flex');
+            passwordModal.classList.add('hidden');
+            folderIdInput.value = '';
+        });
+    </script>
 </body>
 </html>
