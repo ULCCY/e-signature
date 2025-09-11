@@ -2,152 +2,52 @@
 <html lang="id">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Digital Document Management</title>
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+    <link href="[https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap](https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap)" rel="stylesheet">
+    <script src="[https://cdn.tailwindcss.com](https://cdn.tailwindcss.com)"></script>
     <style>
-        :root {
-            --primary-color: #4CAF50;
-            --secondary-color: #f4f6f9;
-            --text-color: #333;
-            --card-bg: #fff;
-            --shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-            --border-radius: 12px;
-        }
-
         body {
             font-family: 'Poppins', sans-serif;
-            margin: 0;
-            padding: 40px 20px;
-            background-color: var(--secondary-color);
-            color: var(--text-color);
-            line-height: 1.6;
-        }
-
-        .container {
-            max-width: 1200px;
-            margin: auto;
-        }
-
-        h1 {
-            text-align: center;
-            font-weight: 700;
-            color: #2c3e50;
-            margin-bottom: 50px;
-        }
-
-        h2 {
-            font-weight: 600;
-            margin-bottom: 20px;
-            border-bottom: 2px solid #ecf0f1;
-            padding-bottom: 10px;
-            color: #34495e;
-        }
-
-        .group {
-            margin-bottom: 50px;
-        }
-
-        .folder-boxes {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 20px;
-        }
-
-        .folder {
-            flex: 1 1 280px;
-            padding: 25px;
-            background-color: var(--card-bg);
-            border-radius: var(--border-radius);
-            box-shadow: var(--shadow);
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
-        }
-
-        .folder:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
-        }
-
-        .folder h3 {
-            margin: 0 0 10px;
-            font-size: 1.25rem;
-            color: #2c3e50;
-        }
-
-        .status {
-            font-size: 0.9rem;
-            font-weight: 600;
-            padding: 5px 10px;
-            border-radius: 50px;
-            align-self: flex-start;
-            margin-top: 10px;
-        }
-
-        .status.available {
-            background-color: #e8f5e9;
-            color: #388e3c;
-        }
-        .status.empty {
-            background-color: #eceff1;
-            color: #7f8c8d;
-        }
-
-        .folder-link {
-            text-decoration: none;
-            color: white;
-            padding: 12px 20px;
-            border-radius: 8px;
-            font-weight: 600;
-            text-align: center;
-            margin-top: 20px;
-            transition: background-color 0.3s ease;
-        }
-        
-        .folder-link.green {
-            background-color: var(--primary-color);
-        }
-        
-        .folder-link.green:hover {
-            background-color: #43a047;
-        }
-        
-        .folder-link.gray {
-            background-color: #95a5a6;
-            cursor: not-allowed;
         }
     </style>
 </head>
-<body>
-    <div class="container">
-        <h1>📁 Digital Document Management</h1>
+<body class="bg-slate-100 text-gray-800 antialiased leading-relaxed p-4 md:p-10">
+    <div class="container max-w-lg mx-auto p-4 md:p-8 text-center">
+        <h1 class="text-4xl md:text-5xl font-extrabold text-gray-900 mb-8">
+            <span class="inline-block mr-2 align-middle">📁</span> Digital Document Management
+        </h1>
 
-        {% for group in ['Pengajuan Awal', 'Rabat', 'PRS', 'Final'] %}
-            <div class="group">
-                <h2>{{ group }}</h2>
-                <div class="folder-boxes">
-                    {% for f in group_data.get(group, []) %}
-                        <div class="folder">
-                            <h3>{{ f.name }}</h3>
-                            <p>Terdapat {{ f.count }} dokumen menunggu.</p>
-                            
-                            {% if f.count > 0 %}
-                                <a href="{{ url_for('view_folder', folder_id=f.id) }}" class="folder-link green">
-                                    Buka Folder
-                                </a>
-                                <span class="status available">Dokumen Tersedia</span>
-                            {% else %}
-                                <a href="#" class="folder-link gray" onclick="return false;">
-                                    Buka Folder
-                                </a>
-                                <span class="status empty">Tidak ada dokumen</span>
-                            {% endif %}
-                        </div>
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                <div class="bg-yellow-500 text-white p-4 rounded-lg mb-6 text-left shadow-md">
+                    {% for message in messages %}
+                        {{ message }}
                     {% endfor %}
                 </div>
-            </div>
-        {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <div class="bg-white p-6 md:p-8 rounded-2xl shadow-lg border border-gray-200">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6 border-b-2 border-gray-200 pb-4">Masuk ke Folder Dokumen</h2>
+            <form action="{{ url_for('login') }}" method="post">
+                <div class="mb-4 text-left">
+                    <label for="folder" class="block mb-2 font-semibold text-gray-700">Pilih Folder</label>
+                    <select name="folder" id="folder" required class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 transition duration-200">
+                        {% for folder_name in folders %}
+                            <option value="{{ folder_name }}">{{ folder_name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="mb-6 text-left">
+                    <label for="password" class="block mb-2 font-semibold text-gray-700">Kata Sandi</label>
+                    <input type="password" name="password" id="password" required class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 transition duration-200">
+                </div>
+                <button type="submit" class="w-full py-3 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition duration-300">
+                    Masuk
+                </button>
+            </form>
+        </div>
     </div>
 </body>
 </html>
