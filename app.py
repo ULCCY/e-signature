@@ -44,42 +44,32 @@ SCOPES = ['https://www.googleapis.com/auth/drive']
 def index():
     creds_json = session.get('creds')
     
-    # Inisialisasi group_data dengan struktur default
+    # Inisialisasi group_data dengan struktur default,
+    # termasuk nama folder dan jumlah dokumen 0
     group_data = {
-        'Pengajuan Awal': [],
-        'Rabat': [],
-        'PRS': [],
-        'Final': [],
+        'Pengajuan Awal': {'count': 0, 'id': FOLDERS.get('Pengajuan Awal', None)},
+        'Rabat': {'count': 0, 'id': FOLDERS.get('Rabat', None)},
+        'PRS': {'count': 0, 'id': FOLDERS.get('PRS', None)},
+        'Final': {'count': 0, 'id': FOLDERS.get('Final', None)},
     }
-
+    
     if creds_json:
         creds = Credentials.from_authorized_user_info(json.loads(creds_json), SCOPES)
         service = build('drive', 'v3', credentials=creds)
         try:
             # Panggil API Drive v3 untuk mendapatkan folder utama
-            response = service.files().list(
-                q="'root' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false",
-                fields="nextPageToken, files(id, name)").execute()
-            
-            main_folders = {file['name']: file['id'] for file in response.get('files', [])}
-            
-            # Populate group_data based on FOLDERS and fetched folder IDs
-            for folder_name, folder_id in FOLDERS.items():
-                if folder_name in group_data.keys():
+            for folder_name, data in group_data.items():
+                folder_id = data.get('id')
+                if folder_id:
+                    # Count documents inside the folder
                     count_response = service.files().list(
                         q=f"'{folder_id}' in parents and trashed=false and mimeType!='application/vnd.google-apps.folder'",
                         fields="files(id)").execute()
                     doc_count = len(count_response.get('files', []))
-                    
-                    group_data[folder_name].append({
-                        'name': folder_name,
-                        'count': doc_count,
-                        'id': folder_id
-                    })
+                    group_data[folder_name]['count'] = doc_count
         except Exception as e:
             flash(f"Error accessing Google Drive: {e}", "error")
-
-    # group_data is always passed to the template
+            
     return render_template('index.html', group_data=group_data)
 
 
@@ -383,7 +373,6 @@ def move_file():
             "04C - General": {"GP": "05 - Final"},
         }
         
-        # This part was missing in the original code
         kode_pengajuan_to_map = filename.split()[1][:2].upper() if len(filename.split()) > 1 else ""
 
         target_folder_name = folder_mapping.get(folder_name, {}).get(kode_pengajuan_to_map)
