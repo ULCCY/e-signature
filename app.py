@@ -21,7 +21,6 @@ from oauthlib.oauth2.rfc6749.errors import AccessDeniedError
 # Muat variabel dari file .env
 load_dotenv()
 SECRET_KEY = os.getenv("SECRET_KEY")
-# Periksa apakah FOLDERS dan FOLDER_PASSWORDS sudah dimuat
 try:
     FOLDERS = json.loads(os.getenv("FOLDERS"))
     FOLDER_PASSWORDS = json.loads(os.getenv("FOLDER_PASSWORDS"))
@@ -33,20 +32,19 @@ except (json.JSONDecodeError, TypeError):
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
 
-# Direktori untuk file sementara
 TEMP_DIR = "temp"
 if not os.path.exists(TEMP_DIR):
     os.makedirs(TEMP_DIR)
 
-# Objek global untuk melacak status unduhan file
 DOWNLOAD_STATUS = {}
 
-# Konfigurasi OAuth 2.0
 SCOPES = ['https://www.googleapis.com/auth/drive']
 
 @app.route('/')
 def index():
     creds_json = session.get('creds')
+    
+    # Inisialisasi group_data dengan struktur default
     group_data = {
         'Pengajuan Awal': [],
         'Rabat': [],
@@ -67,9 +65,7 @@ def index():
             
             # Populate group_data based on FOLDERS and fetched folder IDs
             for folder_name, folder_id in FOLDERS.items():
-                # Check if the folder is one of the main groups to display
                 if folder_name in group_data.keys():
-                    # Count documents inside the folder
                     count_response = service.files().list(
                         q=f"'{folder_id}' in parents and trashed=false and mimeType!='application/vnd.google-apps.folder'",
                         fields="files(id)").execute()
@@ -83,7 +79,7 @@ def index():
         except Exception as e:
             flash(f"Error accessing Google Drive: {e}", "error")
 
-    # The group_data variable is now always passed to the template.
+    # group_data is always passed to the template
     return render_template('index.html', group_data=group_data)
 
 
@@ -362,28 +358,49 @@ def move_file():
     try:
         file = service.files().get(fileId=file_id, fields='name, parents').execute()
         current_parents = file.get('parents', [])
+        current_folder_name = next((name for name, id in FOLDERS.items() if id == current_folder_id), None)
         
-        # Determine the target folder based on the current folder ID and file name
+        if not current_folder_name:
+            return jsonify({'error': 'Current folder not in configured folders'}), 400
+
+        filename = file.get('name')
+        
+        folder_name = next((name for name, id in FOLDERS.items() if id == current_folder_id), None)
+        if not folder_name:
+            return jsonify({'error': 'Current folder not recognized'}), 400
+        
         folder_mapping = {
-            FOLDERS.get("01 - Pengajuan Awal"): FOLDERS.get("02A - SPV HRGA"),
-            FOLDERS.get("02A - SPV HRGA"): FOLDERS.get("03A - SPV"),
-            # Add more specific mapping logic as needed based on your application
+            "01 - Pengajuan Awal": {"SR": "02A - SPV HRGA", "MR": "02B - PAMO", "GP": "02B - PAMO",
+                "SP": "02A - SPV HRGA", "MP": "02A - SPV HRGA", "GP": "02A - SPV HRGA",
+            },
+            "02A - SPV HRGA": {"SR": "03A - SPV", "MR": "03B - Manager", "GR": "03C - General"},
+            "02B - PAMO": {"SP": "04A - SPV", "MP": "04B - Manager", "GP": "04C - General"},
+            "03A - SPV": {"SR": "05 - Final"},
+            "03B - Manager": {"MR": "05 - Final"},
+            "03C - General": {"GR": "05 - Final"},
+            "04A - SPV": {"SP": "05 - Final"},
+            "04B - Manager": {"MP": "05 - Final"},
+            "04C - General": {"GP": "05 - Final"},
         }
         
-        target_id = folder_mapping.get(current_folder_id)
+        # This part was missing in the original code
+        kode_pengajuan_to_map = filename.split()[1][:2].upper() if len(filename.split()) > 1 else ""
 
-        if target_id:
-            # Move the file
-            service.files().update(
-                fileId=file_id,
-                addParents=target_id,
-                removeParents=current_folder_id,
-                fields='id, parents'
-            ).execute()
-            
-            target_folder_name = next((name for name, id in FOLDERS.items() if id == target_id), 'Unknown Folder')
-            flash(f"File moved to {target_folder_name} successfully!", "success")
-            return jsonify({'message': f"File moved to {target_folder_name} successfully!", 'new_folder_id': target_id}), 200
+        target_folder_name = folder_mapping.get(folder_name, {}).get(kode_pengajuan_to_map)
+        if target_folder_name:
+            target_id = FOLDERS.get(target_folder_name)
+            if target_id:
+                service.files().update(
+                    fileId=file_id,
+                    addParents=target_id,
+                    removeParents=current_folder_id,
+                    fields='id, parents'
+                ).execute()
+                flash(f"File moved to {target_folder_name} successfully!", "success")
+                return jsonify({'message': f"File moved to {target_folder_name} successfully!", 'new_folder_id': target_id}), 200
+            else:
+                flash("Target folder ID not found.", "error")
+                return jsonify({'error': 'Target folder ID not found'}), 404
         else:
             flash("No valid destination found for this file.", "error")
             return jsonify({'error': 'No valid destination found for this file'}), 400
