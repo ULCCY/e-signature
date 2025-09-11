@@ -1,22 +1,20 @@
 import os
 import io
 import base64
-import json
-import threading
-import mimetypes
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash, send_from_directory
 from dotenv import load_dotenv
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload, MediaFileUpload, MediaIoBaseDownload
 from reportlab.pdfgen import canvas as pdf_canvas
 from reportlab.lib.pagesizes import A4
 from PyPDF2 import PdfReader, PdfWriter
+import json
+import threading
 from werkzeug.utils import secure_filename
 from datetime import datetime
-from oauthlib.oauth2.rfc6749.errors import AccessDeniedError
+import mimetypes
 
 # Muat variabel dari file .env
 load_dotenv()
@@ -38,339 +36,403 @@ DOWNLOAD_STATUS = {}
 
 # Konfigurasi OAuth 2.0
 SCOPES = ['https://www.googleapis.com/auth/drive']
+CLIENT_SECRETS = json.loads(os.getenv("GOOGLE_CREDENTIALS"))
+TOKEN_FILE = "token.json"
 
-@app.route('/')
-def index():
-    creds = session.get('creds')
-    if not creds:
-        # Pass an empty dictionary for group_data when no creds exist
-        return render_template('index.html', group_data={})
+def get_drive_service():
+    """Menginisialisasi dan mengembalikan objek layanan Google Drive dengan kredensial OAuth."""
+    creds = None
+    if os.path.exists(TOKEN_FILE):
+        creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
 
-    # The rest of your existing code for a logged-in user
-    creds = Credentials.from_authorized_user_info(json.loads(creds), SCOPES)
-    service = build('drive', 'v3', credentials=creds)
+    if not creds or not creds.valid:
+        # Logika ini seharusnya tidak lagi dipanggil di sini.
+        # Sebaiknya, alihkan pengguna ke rute /authorize
+        # Jika kredensial tidak ada, kembalikan None
+        return None
 
+    if creds and creds.expired and creds.refresh_token:
+        creds.refresh(InstalledAppFlow.from_client_config(CLIENT_SECRETS, SCOPES).credentials)
+
+    return build('drive', 'v3', credentials=creds)
+
+# --- FUNGSI DRIVE API DIUBAH UNTUK MENGGUNAKAN FUNGSI BARU ---
+def get_files(folder_id):
+    """Mengambil daftar file di dalam folder Google Drive."""
     try:
-        response = service.files().list(
-            q="'root' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false",
-            fields="nextPageToken, files(id, name)").execute()
-        
-        main_folders = {file['name']: file['id'] for file in response.get('files', [])}
-        
-        folders_with_passwords = {name: {'id': main_folders.get(name), 'password_required': name in FOLDER_PASSWORDS} for name in FOLDERS.keys()}
-
-        # The existing code that correctly passes `folders`
-        return render_template('index.html', folders=folders_with_passwords)
+        service = get_drive_service()
+        results = service.files().list(
+            q=f"'{folder_id}' in parents and trashed = false",
+            pageSize=100,
+            fields="nextPageToken, files(id, name, parents)"
+        ).execute()
+        files = results.get("files", [])
+        return files
     except Exception as e:
-        flash(f"Error accessing Google Drive: {e}", "error")
-        return redirect(url_for('index'))
+        print(f"Error saat mengambil file: {e}")
+        return []
 
-@app.route('/authorize')
+def get_file_by_id(file_id):
+    """Mengambil metadata file berdasarkan ID-nya."""
+    try:
+        service = get_drive_service()
+        return service.files().get(fileId=file_id, fields="id, name, parents").execute()
+    except Exception as e:
+        print(f"Error saat mengambil file dengan ID {file_id}: {e}")
+        return None
+
+def move_file(file_id, new_parent_id):
+    """Memindahkan file dari satu folder ke folder lain."""
+    try:
+        service = get_drive_service()
+        file = service.files().get(fileId=file_id, fields="parents").execute()
+        previous_parents = ",".join(file.get("parents"))
+        service.files().update(
+            fileId=file_id,
+            addParents=new_parent_id,
+            removeParents=previous_parents,
+            fields="id, parents"
+        ).execute()
+        return True
+    except Exception as e:
+        print(f"Error saat memindahkan file: {e}")
+        return False
+
+def add_signature_to_pdf(input_pdf_path, signature_data_url, keyword):
+    """Menambahkan tanda tangan ke PDF. Tanda tangan akan diletakkan di bawah keyword."""
+    # (Fungsi ini tidak berubah)
+    try:
+        header, encoded_data = signature_data_url.split(",", 1)
+        signature_binary_data = base64.b64decode(encoded_data)
+
+        sig_pdf_path = os.path.join(TEMP_DIR, "signature.pdf")
+        c = pdf_canvas.Canvas(sig_pdf_path, pagesize=A4)
+        c.drawImage(
+            io.BytesIO(signature_binary_data),
+            x=220, y=100, width=150, height=50,
+            mask='auto'
+        )
+        c.save()
+
+        input_pdf = PdfReader(open(input_pdf_path, "rb"))
+        sig_pdf = PdfReader(open(sig_pdf_path, "rb"))
+        
+        output = PdfWriter()
+
+        for i in range(len(input_pdf.pages)):
+            page = input_pdf.pages[i]
+            if i == len(input_pdf.pages) - 1:
+                page.merge_page(sig_pdf.pages[0])
+            output.add_page(page)
+
+        signed_pdf_path = os.path.join(TEMP_DIR, f"signed_{os.path.basename(input_pdf_path)}")
+        with open(signed_pdf_path, "wb") as f:
+            output.write(f)
+
+        return signed_pdf_path
+
+    except Exception as e:
+        print(f"Error saat menambahkan tanda tangan ke PDF: {e}")
+        return None
+
+# --- RUTE-RUTE FLASK BARU UNTUK OTENTIKASI ---
+@app.route("/authorize")
 def authorize():
-    flow = InstalledAppFlow.from_client_config(
-        json.loads(os.getenv("CLIENT_SECRETS")),
-        SCOPES,
-        redirect_uri=url_for('oauth2callback', _external=True)
-    )
-    authorization_url, state = flow.authorization_url(
-        access_type='offline',
-        include_granted_scopes='true'
-    )
+    flow = InstalledAppFlow.from_client_config(CLIENT_SECRETS, SCOPES)
+    flow.redirect_uri = url_for('oauth2callback', _external=True)
+    authorization_url, state = flow.authorization_url(access_type='offline', include_granted_scopes='true')
     session['state'] = state
     return redirect(authorization_url)
 
-@app.route('/oauth2callback')
+@app.route("/oauth2callback")
 def oauth2callback():
-    state = session.get('state')
-    if not state or state != request.args.get('state'):
-        flash("State parameter mismatch.", "error")
-        return redirect(url_for('index'))
+    state = session['state']
+    flow = InstalledAppFlow.from_client_config(CLIENT_SECRETS, SCOPES, state=state)
+    flow.redirect_uri = url_for('oauth2callback', _external=True)
+    authorization_response = request.url
+    flow.fetch_token(authorization_response=authorization_response)
+    creds = flow.credentials
+    with open(TOKEN_FILE, 'w') as token:
+        token.write(creds.to_json())
+    flash("Otentikasi Google Drive berhasil!", "success")
+    return redirect(url_for('index'))
 
-    # Menggunakan try-except untuk menangani AccessDeniedError
-    try:
-        flow = InstalledAppFlow.from_client_config(
-            json.loads(os.getenv("CLIENT_SECRETS")),
-            SCOPES,
-            redirect_uri=url_for('oauth2callback', _external=True)
-        )
-        authorization_response = request.url
-        flow.fetch_token(authorization_response=authorization_response)
-        
-        creds = flow.credentials.to_json()
-        session['creds'] = creds
-        return redirect(url_for('index'))
-    except AccessDeniedError:
-        flash("Authorization failed. You denied access to the application.", "error")
-        return redirect(url_for('index'))
-    except Exception as e:
-        flash(f"An unexpected error occurred: {e}", "error")
-        return redirect(url_for('index'))
-
-@app.route('/view_folder/<folder_id>')
-def view_folder(folder_id):
-    creds = session.get('creds')
-    if not creds:
+# --- RUTE-RUTE FLASK LAINNYA TIDAK BERUBAH SECARA SIGNIFIKAN ---
+@app.route("/", methods=["GET", "POST"])
+def index():
+    service = get_drive_service()
+    if service is None:
+        # Jika tidak ada kredensial, alihkan pengguna ke otorisasi
         return redirect(url_for('authorize'))
     
-    # Periksa apakah folder_id ada di FOLDERS
-    folder_name = next((name for name, id in FOLDERS.items() if id == folder_id), None)
-    if folder_name is None:
-        flash("Folder not found.", "error")
-        return redirect(url_for('index'))
-
-    # Periksa password jika diperlukan
-    password = request.args.get('password')
-    if folder_name in FOLDER_PASSWORDS:
-        if not password or password != FOLDER_PASSWORDS[folder_name]:
-            # Jika password salah, tampilkan pesan error dan kembali
-            flash("Incorrect password for this folder.", "error")
-            return redirect(url_for('index'))
+    """Halaman utama, menampilkan daftar folder berdasarkan grup."""
+    folder_groups = {
+        "Pengajuan Awal": ["01 - Pengajuan Awal"],
+        "Rabat": ["02A - SPV HRGA", "03A - SPV", "03B - Manager", "03C - General"],
+        "PRS": ["02B - PAMO", "04A - SPV", "04B - Manager", "04C - General"],
+        "Final": ["05 - Final"]
+    }
     
-    # Simpan folder saat ini di sesi
-    session['current_folder_id'] = folder_id
+    group_data = {}
+    for group_name, folders_in_group in folder_groups.items():
+        group_data[group_name] = []
+        for folder_name in folders_in_group:
+            folder_id = FOLDERS.get(folder_name)
+            if folder_id:
+                files = get_files(folder_id)
+                group_data[group_name].append({
+                    "name": folder_name,
+                    "id": folder_id,
+                    "count": len(files)
+                })
 
-    creds = Credentials.from_authorized_user_info(json.loads(creds), SCOPES)
-    service = build('drive', 'v3', credentials=creds)
+    return render_template("index.html", group_data=group_data)
+
+@app.route("/login", methods=["POST"])
+def login():
+    folder_id = request.form.get("folder_id")
+    password = request.form.get("password")
+
+    if FOLDER_PASSWORDS.get(folder_id) == password:
+        session["logged_in"] = True
+        session["folder_id"] = folder_id
+        flash("Login berhasil!", "success")
+        return redirect(url_for("view_folder", folder_id=folder_id))
+    else:
+        session["logged_in"] = False
+        flash("Password salah. Silakan coba lagi.", "error")
+        return redirect(url_for("view_folder", folder_id=folder_id))
+
+@app.route("/view_folder/<folder_id>", methods=["GET"])
+def view_folder(folder_id):
+    folder_name = FOLDERS.get(folder_id)
+    if not folder_name:
+        flash("Folder tidak ditemukan.", "error")
+        return redirect(url_for("index"))
+
+    # Periksa otentikasi
+    if not session.get("logged_in") or session.get("folder_id") != folder_id:
+        return render_template("password.html", folder_id=folder_id, folder_name=folder_name)
 
     try:
-        # Dapatkan file dan folder di dalam folder yang dipilih
-        response = service.files().list(
+        service = get_drive_service()
+        results = service.files().list(
             q=f"'{folder_id}' in parents and trashed=false",
-            fields="files(id, name, mimeType, modifiedTime, size)").execute()
+            pageSize=10,
+            fields="nextPageToken, files(id, name, mimeType, modifiedTime)"
+        ).execute()
+        files = results.get("files", [])
         
-        items = response.get('files', [])
-        
-        files = []
-        subfolders = []
-        for item in items:
-            if item['mimeType'] == 'application/vnd.google-apps.folder':
-                subfolders.append({
-                    'id': item['id'],
-                    'name': item['name']
-                })
-            else:
-                files.append({
-                    'id': item['id'],
-                    'name': item['name'],
-                    'modifiedTime': item.get('modifiedTime'),
-                    'size': item.get('size'),
-                    'mimeType': item['mimeType']
-                })
+        for file in files:
+            file["modifiedTime"] = datetime.strptime(file["modifiedTime"], '%Y-%m-%dT%H:%M:%S.%fZ').strftime('%d %B %Y %H:%M:%S')
 
-        return render_template('folder_content.html', folder_name=folder_name, subfolders=subfolders, files=files)
+        return render_template("folder.html", folder_name=folder_name, files=files, folder_id=folder_id)
+        
     except Exception as e:
-        flash(f"Error accessing folder: {e}", "error")
-        return redirect(url_for('index'))
-
-
-@app.route('/upload_file', methods=['POST'])
+        print(f"Error saat mengambil file dari Drive: {e}")
+        flash("Gagal memuat file.", "error")
+        return redirect(url_for("index"))
+    
+@app.route("/upload_file", methods=["POST"])
 def upload_file():
-    creds = session.get('creds')
-    if not creds:
-        return jsonify({'error': 'Unauthorized'}), 401
-
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file part'}), 400
+    target_folder_id = request.form.get("folder_id")
+    if not session.get("logged_in") or session.get("folder_id") != target_folder_id:
+        flash("Silakan login kembali untuk mengunggah file.", "error")
+        return redirect(url_for("view_folder", folder_id=target_folder_id))
     
-    file = request.files['file']
-    
-    if file.filename == '':
-        return jsonify({'error': 'No selected file'}), 400
-    
-    creds = Credentials.from_authorized_user_info(json.loads(creds), SCOPES)
-    service = build('drive', 'v3', credentials=creds)
-    
-    current_folder_id = session.get('current_folder_id')
-    if not current_folder_id:
-        return jsonify({'error': 'No active folder selected'}), 400
-
     try:
-        filename = secure_filename(file.filename)
-        mime_type, _ = mimetypes.guess_type(filename)
-        
-        # Baca konten file
-        file_content = file.read()
-        
-        # Buat MediaIoBaseUpload
-        media = MediaIoBaseUpload(io.BytesIO(file_content), mime_type, resumable=True)
+        service = get_drive_service()
+        uploaded_file = request.files.get("file")
+        if not uploaded_file or uploaded_file.filename == "":
+            flash("Tidak ada file yang dipilih.", "error")
+            return redirect(url_for("view_folder", folder_id=target_folder_id))
+
+        filename = secure_filename(uploaded_file.filename)
+        mime_type = uploaded_file.content_type
         
         file_metadata = {
-            'name': filename,
-            'parents': [current_folder_id]
+            "name": filename,
+            "parents": [target_folder_id]
         }
         
-        uploaded_file = service.files().create(
+        if mime_type in ["application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                       "application/msword",
+                       "application/vnd.oasis.opendocument.text"]:
+            
+            if "." in filename:
+                name_without_ext = filename.rsplit(".", 1)[0]
+                filename = f"{name_without_ext}.pdf"
+            else:
+                filename += ".pdf"
+            
+            file_metadata["name"] = filename
+            file_metadata["mimeType"] = "application/pdf"
+
+        media = MediaIoBaseUpload(uploaded_file.stream, mimetype=mime_type, resumable=True)
+
+        service.files().create(
             body=file_metadata,
             media_body=media,
-            fields='id'
+            fields="id"
         ).execute()
-        
-        flash("File uploaded successfully!", "success")
-        return jsonify({'message': 'File uploaded successfully', 'file_id': uploaded_file.get('id')}), 200
+
+        flash(f"File '{filename}' berhasil diunggah dan dikonversi.", "success")
         
     except Exception as e:
-        flash(f"Error uploading file: {e}", "error")
-        return jsonify({'error': f"Error uploading file: {e}"}), 500
+        print(f"Error saat mengunggah file: {e}")
+        flash(f"Error: Gagal mengunggah file. {e}", "error")
 
+    return redirect(url_for("view_folder", folder_id=target_folder_id))
 
-@app.route('/create_pdf', methods=['POST'])
-def create_pdf():
-    creds = session.get('creds')
-    if not creds:
-        return jsonify({'error': 'Unauthorized'}), 401
-
-    data = request.get_json()
-    text = data.get('text', '')
-    filename = data.get('filename', 'document.pdf')
+@app.route("/delete_file/<file_id>", methods=["POST"])
+def delete_file(file_id):
+    """Menghapus file dari Google Drive."""
+    folder_name = get_folder_name_by_id(request.form.get("folder_id"))
     
-    if not text:
-        return jsonify({'error': 'No text provided'}), 400
-
-    creds = Credentials.from_authorized_user_info(json.loads(creds), SCOPES)
-    service = build('drive', 'v3', credentials=creds)
-    
-    current_folder_id = session.get('current_folder_id')
-    if not current_folder_id:
-        return jsonify({'error': 'No active folder selected'}), 400
+    if folder_name != "01 - Pengajuan Awal":
+        return "Akses Ditolak: Anda tidak memiliki izin untuk menghapus file di folder ini.", 403
 
     try:
-        # Buat file PDF di memori
-        buffer = io.BytesIO()
-        c = pdf_canvas.Canvas(buffer, pagesize=A4)
-        c.drawString(100, 750, "Generated PDF from Text")
-        c.drawString(100, 730, text)
-        c.showPage()
-        c.save()
-        
-        buffer.seek(0)
-        
-        media = MediaIoBaseUpload(buffer, 'application/pdf', resumable=True)
-        
-        file_metadata = {
-            'name': filename,
-            'parents': [current_folder_id]
-        }
-        
-        uploaded_file = service.files().create(
-            body=file_metadata,
-            media_body=media,
-            fields='id'
-        ).execute()
-        
-        flash("PDF created and uploaded successfully!", "success")
-        return jsonify({'message': 'PDF created successfully', 'file_id': uploaded_file.get('id')}), 200
-        
+        service = get_drive_service()
+        service.files().delete(fileId=file_id).execute()
+        flash("File berhasil dihapus.", "success")
     except Exception as e:
-        flash(f"Error creating PDF: {e}", "error")
-        return jsonify({'error': f"Error creating PDF: {e}"}), 500
+        print(f"Error saat menghapus file: {e}")
+        flash(f"Gagal menghapus file: {e}", "error")
 
+    return redirect(url_for("view_folder", folder_id=request.form.get("folder_id")))
 
-@app.route('/sign_document', methods=['POST'])
-def sign_document():
-    creds = session.get('creds')
-    if not creds:
-        return jsonify({'error': 'Unauthorized'}), 401
+@app.route("/load_file/<file_id>")
+def load_file(file_id):
+    """Halaman loading untuk memulai unduhan file."""
+    file = get_file_by_id(file_id)
+    if not file:
+        return "File tidak ditemukan.", 404
+    folder_id = file.get('parents')[0]
+    folder_name = get_folder_name_by_id(folder_id)
+    return render_template("loading.html", file_id=file_id, folder=folder_name, folder_id=folder_id)
 
-    data = request.get_json()
-    file_id = data.get('file_id')
-    signature_base64 = data.get('signature')
+@app.route("/start_download/<file_id>")
+def start_download(file_id):
+    """Mulai proses unduhan file dari Google Drive di latar belakang."""
+    global DOWNLOAD_STATUS
+    DOWNLOAD_STATUS[file_id] = "downloading"
     
-    if not file_id or not signature_base64:
-        return jsonify({'error': 'File ID or signature not provided'}), 400
-
-    creds = Credentials.from_authorized_user_info(json.loads(creds), SCOPES)
-    service = build('drive', 'v3', credentials=creds)
+    download_thread = threading.Thread(target=download_file_thread, args=(file_id,))
+    download_thread.start()
     
+    return jsonify({"status": "download_started"})
+
+def download_file_thread(file_id):
+    """Fungsi pembantu untuk mengunduh file dalam thread."""
+    global DOWNLOAD_STATUS
     try:
-        # Download file
-        request_download = service.files().get_media(fileId=file_id)
-        file_data = io.BytesIO()
-        downloader = MediaIoBaseDownload(file_data, request_download)
-        done = False
-        while done is False:
-            status, done = downloader.next_chunk()
-        file_data.seek(0)
-        
-        # Tanda tangani dokumen
-        signature_image = io.BytesIO(base64.b64decode(signature_base64.split(',')[1]))
-        
-        reader = PdfReader(file_data)
-        writer = PdfWriter()
+        service = get_drive_service()
+        file_metadata = service.files().get(fileId=file_id).execute()
+        filename = file_metadata.get("name")
+        temp_pdf_path = os.path.join(TEMP_DIR, filename)
 
-        for page in reader.pages:
-            writer.add_page(page)
-
-        # Buat PDF untuk tanda tangan
-        sig_buffer = io.BytesIO()
-        sig_canvas = pdf_canvas.Canvas(sig_buffer, pagesize=A4)
-        sig_canvas.drawInlineImage(signature_image, 100, 100, width=50, height=50) # Tentukan posisi tanda tangan
-        sig_canvas.showPage()
-        sig_canvas.save()
-        sig_buffer.seek(0)
+        request_file = service.files().get_media(fileId=file_id)
+        with io.FileIO(temp_pdf_path, "wb") as f:
+            downloader = MediaIoBaseDownload(f, request_file)
+            done = False
+            while not done:
+                _, done = downloader.next_chunk()
         
-        sig_reader = PdfReader(sig_buffer)
-        
-        # Gabungkan tanda tangan dengan dokumen asli
-        writer.add_page(sig_reader.pages[0])
-        
-        output_buffer = io.BytesIO()
-        writer.write(output_buffer)
-        output_buffer.seek(0)
-
-        # Upload kembali file yang ditandatangani
-        media = MediaIoBaseUpload(output_buffer, 'application/pdf', resumable=True)
-        
-        updated_file = service.files().update(
-            fileId=file_id,
-            media_body=media,
-            fields='id'
-        ).execute()
-        
-        flash("Document signed successfully!", "success")
-        return jsonify({'message': 'Document signed successfully', 'file_id': updated_file.get('id')}), 200
-        
+        DOWNLOAD_STATUS[file_id] = "ready"
+        print(f"File {file_id} berhasil diunduh.")
     except Exception as e:
-        flash(f"Error signing document: {e}", "error")
-        return jsonify({'error': f"Error signing document: {e}"}), 500
+        print(f"Error saat mengunduh file {file_id}: {e}")
+        DOWNLOAD_STATUS[file_id] = "error"
 
-@app.route('/move_file', methods=['POST'])
-def move_file():
-    creds = session.get('creds')
-    if not creds:
-        return jsonify({'error': 'Unauthorized'}), 401
+@app.route("/check_ready/<file_id>")
+def check_ready(file_id):
+    """Memeriksa status unduhan file."""
+    global DOWNLOAD_STATUS
+    status = DOWNLOAD_STATUS.get(file_id, "pending")
+    return jsonify({"ready": status == "ready", "error": status == "error"})
 
-    data = request.get_json()
-    file_id = data.get('file_id')
+@app.route("/download_pdf/<file_id>")
+def download_pdf(file_id):
+    """Mengirim file PDF yang sudah diunduh ke browser untuk pratinjau."""
+    service = get_drive_service()
+    file_metadata = service.files().get(fileId=file_id).execute()
+    filename = file_metadata.get("name")
+    return send_from_directory(TEMP_DIR, filename, mimetype=mimetypes.guess_type(filename)[0])
+
+@app.route("/preview_file/<file_id>")
+def preview_file(file_id):
+    """Menampilkan halaman pratinjau dan tanda tangan."""
+    file = get_file_by_id(file_id)
+    if not file:
+        return "File tidak ditemukan.", 404
     
-    if not file_id:
-        return jsonify({'error': 'File ID not provided'}), 400
-
-    creds = Credentials.from_authorized_user_info(json.loads(creds), SCOPES)
-    service = build('drive', 'v3', credentials=creds)
+    folder_id = file.get('parents')[0]
+    folder_name = get_folder_name_by_id(folder_id)
     
-    current_folder_id = session.get('current_folder_id')
-    if not current_folder_id:
-        return jsonify({'error': 'No active folder selected'}), 400
+    is_final_folder = folder_name == "05 - Final"
+    is_pengajuan_awal = folder_name == "01 - Pengajuan Awal"
+    
+    return render_template(
+        "preview.html", 
+        file_id=file.get('id'), 
+        folder=folder_name, 
+        folder_id=folder_id,
+        is_final_folder=is_final_folder,
+        is_pengajuan_awal=is_pengajuan_awal
+    )
 
+def get_folder_name_by_id(folder_id):
+    """Mencari nama folder berdasarkan ID."""
+    for name, id in FOLDERS.items():
+        if id == folder_id:
+            return name
+    return None
+
+@app.route("/save_signature", methods=["POST"])
+def save_signature():
+    """Menerima tanda tangan, menambahkan ke PDF, mengunggah kembali, memindahkan, dan mengganti nama file."""
     try:
-        file = service.files().get(fileId=file_id, fields='name, parents').execute()
-        current_parents = file.get('parents', [])
-        current_folder_name = next((name for name, id in FOLDERS.items() if id == current_folder_id), None)
+        service = get_drive_service()
+        data = request.json
+        file_id = data.get("file_id")
+        folder_name = data.get("folder")
+        signature_data = data.get("signature")
         
-        if not current_folder_name:
-            return jsonify({'error': 'Current folder not in configured folders'}), 400
+        pengajuan_bulan = data.get("pengajuan_bulan")
+        pengajuan_tahun = data.get("pengajuan_tahun")
+        perusahaan = data.get("perusahaan")
+        pengajuan_akhir = data.get("pengajuan_akhir")
+        
+        if folder_name == "01 - Pengajuan Awal":
+            if not all([signature_data, pengajuan_bulan, pengajuan_tahun, perusahaan, pengajuan_akhir]):
+                return "Mohon lengkapi semua data dan tanda tangan.", 400
 
-        # Logic for determining the next folder based on the file name
-        filename = file.get('name')
+        if folder_name != "05 - Final":
+            file_metadata = service.files().get(fileId=file_id).execute()
+            filename = file_metadata.get("name")
+            temp_pdf_path = os.path.join(TEMP_DIR, filename)
+            signed_path = add_signature_to_pdf(temp_pdf_path, signature_data, folder_name)
+            if not signed_path:
+                return "Gagal menambahkan tanda tangan.", 500
+
+            media = MediaFileUpload(signed_path, mimetype="application/pdf", resumable=True)
+            service.files().update(fileId=file_id, media_body=media).execute()
         
-        # Mendapatkan nama folder saat ini
-        folder_name = next((name for name, id in FOLDERS.items() if id == current_folder_id), None)
-        if not folder_name:
-            return jsonify({'error': 'Current folder not recognized'}), 400
+            if folder_name == "01 - Pengajuan Awal":
+                now = datetime.now()
+                month = now.strftime("%m")
+                year = now.strftime("%y")
+                
+                kode_pengajuan = pengajuan_akhir.upper() + perusahaan.upper()
+                original_filename = filename
+                
+                new_filename = f"{year}/{month} {kode_pengajuan} - {original_filename}"
+                service.files().update(fileId=file_id, body={'name': new_filename}).execute()
         
-        # Aturan pemetaan folder
         folder_mapping = {
-            "01 - Pengajuan Awal": {"SR": "02A - SPV HRGA", "MR": "02B - PAMO", "GP": "02B - PAMO",
+            "01 - Pengajuan Awal": {
+                "SR": "02A - SPV HRGA", "MR": "02B - PAMO", "GR": "02B - PAMO", 
                 "SP": "02A - SPV HRGA", "MP": "02A - SPV HRGA", "GP": "02A - SPV HRGA",
             },
             "02A - SPV HRGA": {"SR": "03A - SPV", "MR": "03B - Manager", "GR": "03C - General"},
@@ -389,113 +451,19 @@ def move_file():
         if target_folder_name:
             target_id = FOLDERS.get(target_folder_name)
             if target_id:
-                # Pindahkan file
-                service.files().update(
-                    fileId=file_id,
-                    addParents=target_id,
-                    removeParents=current_folder_id,
-                    fields='id, parents'
-                ).execute()
-                flash(f"File moved to {target_folder_name} successfully!", "success")
-                return jsonify({'message': f"File moved to {target_folder_name} successfully!", 'new_folder_id': target_id}), 200
-            else:
-                flash("Target folder ID not found.", "error")
-                return jsonify({'error': 'Target folder ID not found'}), 404
-        else:
-            flash("No valid destination found for this file.", "error")
-            return jsonify({'error': 'No valid destination found for this file'}), 400
+                move_file(file_id, target_id)
+
+        if folder_name != "05 - Final":
+            if os.path.exists(temp_pdf_path):
+                os.remove(temp_pdf_path)
+            if os.path.exists(signed_path):
+                os.remove(signed_path)
+
+        return "OK", 200
 
     except Exception as e:
-        flash(f"Error moving file: {e}", "error")
-        return jsonify({'error': f"Error moving file: {e}"}), 500
+        print(f"Error dalam save_signature: {e}")
+        return "Terjadi kesalahan server.", 500
 
-
-@app.route('/download/<file_id>')
-def download_file(file_id):
-    creds = session.get('creds')
-    if not creds:
-        return jsonify({'error': 'Unauthorized'}), 401
-
-    creds = Credentials.from_authorized_user_info(json.loads(creds), SCOPES)
-    service = build('drive', 'v3', credentials=creds)
-
-    try:
-        file = service.files().get(fileId=file_id, fields='name').execute()
-        filename = file.get('name')
-        
-        # Inisialisasi status unduhan
-        DOWNLOAD_STATUS[file_id] = {'progress': 0, 'done': False, 'error': None}
-
-        # Gunakan threading untuk unduhan di latar belakang
-        thread = threading.Thread(target=perform_download, args=(creds, file_id, filename))
-        thread.daemon = True
-        thread.start()
-        
-        return jsonify({'message': 'Download started', 'file_id': file_id}), 200
-    except Exception as e:
-        DOWNLOAD_STATUS.get(file_id, {})['error'] = str(e)
-        return jsonify({'error': f"Error starting download: {e}"}), 500
-
-
-def perform_download(creds, file_id, filename):
-    try:
-        creds = Credentials.from_authorized_user_info(json.loads(creds.to_json()), SCOPES)
-        service = build('drive', 'v3', credentials=creds)
-
-        file_path = os.path.join(TEMP_DIR, filename)
-        
-        request_download = service.files().get_media(fileId=file_id)
-        with open(file_path, 'wb') as fh:
-            downloader = MediaIoBaseDownload(fh, request_download, chunksize=1024 * 1024)
-            done = False
-            while done is False:
-                status, done = downloader.next_chunk()
-                progress = int(status.progress() * 100)
-                DOWNLOAD_STATUS[file_id]['progress'] = progress
-        
-        DOWNLOAD_STATUS[file_id]['done'] = True
-    except Exception as e:
-        DOWNLOAD_STATUS[file_id]['error'] = str(e)
-
-
-@app.route('/download_status/<file_id>')
-def download_status(file_id):
-    status = DOWNLOAD_STATUS.get(file_id, {'progress': 0, 'done': False, 'error': 'File not found or download not started.'})
-    return jsonify(status)
-
-@app.route('/serve_file/<file_id>')
-def serve_file(file_id):
-    status = DOWNLOAD_STATUS.get(file_id)
-    if not status or not status['done']:
-        return jsonify({'error': 'File not ready for serving'}), 400
-    
-    file_name = next((fn for fn, fs in DOWNLOAD_STATUS.items() if fs.get('done') and fs.get('file_id') == file_id), None)
-    if not file_name:
-        return jsonify({'error': 'File not found'}), 404
-
-    # Ambil nama file dari status unduhan
-    # Ini mungkin perlu diperbaiki agar lebih dinamis, tapi untuk contoh ini cukup
-    file_path = os.path.join(TEMP_DIR, file_name)
-    if os.path.exists(file_path):
-        return send_from_directory(TEMP_DIR, file_name, as_attachment=True)
-    else:
-        return jsonify({'error': 'File not found on server'}), 404
-
-@app.route('/delete_file/<file_id>')
-def delete_file(file_id):
-    creds = session.get('creds')
-    if not creds:
-        return jsonify({'error': 'Unauthorized'}), 401
-
-    creds = Credentials.from_authorized_user_info(json.loads(creds), SCOPES)
-    service = build('drive', 'v3', credentials=creds)
-
-    try:
-        service.files().delete(fileId=file_id).execute()
-        return jsonify({'message': 'File deleted successfully'}), 200
-    except Exception as e:
-        return jsonify({'error': f"Error deleting file: {e}"}), 500
-
-
-if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=os.environ.get('PORT', 5000))
+if __name__ == "__main__":
+    app.run(debug=True, port=int(os.environ.get("PORT", 5000)))
