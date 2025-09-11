@@ -4,11 +4,12 @@ import base64
 import json
 import threading
 import mimetypes
+import logging
 from datetime import datetime
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash, send_from_directory
 from dotenv import load_dotenv
 from werkzeug.utils import secure_filename
-from google.oauth2 import service_account, credentials as oauth_credentials
+from google.oauth2 import service_account
 from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request as AuthRequest
 from googleapiclient.discovery import build
@@ -16,6 +17,7 @@ from googleapiclient.http import MediaIoBaseUpload, MediaFileUpload, MediaIoBase
 from reportlab.pdfgen import canvas as pdf_canvas
 from reportlab.lib.pagesizes import A4
 from PyPDF2 import PdfReader, PdfWriter
+from googleapiclient.errors import HttpError
 
 # Muat variabel dari file .env
 load_dotenv()
@@ -25,18 +27,20 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 if not SECRET_KEY:
     raise ValueError("SECRET_KEY tidak ditemukan di .env")
 
-# Periksa dan muat variabel lingkungan
-GOOGLE_SERVICE_ACCOUNT_JSON = json.loads(os.getenv("GOOGLE_SERVICE_ACCOUNT"))
-FOLDERS = json.loads(os.getenv("FOLDERS"))
-FOLDER_PASSWORDS = json.loads(os.getenv("FOLDER_PASSWORDS"))
+try:
+    GOOGLE_SERVICE_ACCOUNT_JSON = json.loads(os.getenv("GOOGLE_SERVICE_ACCOUNT"))
+    FOLDERS = json.loads(os.getenv("FOLDERS"))
+    FOLDER_PASSWORDS = json.loads(os.getenv("FOLDER_PASSWORDS"))
+    GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+    GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+    GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI")
+except (json.JSONDecodeError, TypeError) as e:
+    raise ValueError(f"Variabel lingkungan tidak valid: {e}")
 
-# Konfigurasi OAuth (dapatkan dari Google Cloud Console)
-GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
-GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
-GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI")
 OAUTH_SCOPES = [
     "https://www.googleapis.com/auth/drive.file",
-    "https://www.googleapis.com/auth/userinfo.email"
+    "https://www.googleapis.com/auth/userinfo.email",
+    "openid"
 ]
 
 app = Flask(__name__)
@@ -50,20 +54,22 @@ if not os.path.exists(TEMP_DIR):
 # Objek global untuk melacak status unduhan file
 DOWNLOAD_STATUS = {}
 
-def get_drive_service(creds=None):
-    """Menginisialisasi dan mengembalikan objek layanan Google Drive."""
-    if creds:
-        # Gunakan kredensial dari OAuth
-        return build("drive", "v3", credentials=creds)
-    else:
-        # Gunakan kredensial akun layanan (default)
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+
+def get_drive_service_sa():
+    """Menginisialisasi dan mengembalikan objek layanan Google Drive dengan akun layanan."""
+    try:
         service_creds = service_account.Credentials.from_service_account_info(
             GOOGLE_SERVICE_ACCOUNT_JSON,
             scopes=["https://www.googleapis.com/auth/drive"]
         )
         return build("drive", "v3", credentials=service_creds)
+    except Exception as e:
+        logging.error(f"Error saat mengautentikasi dengan akun layanan: {e}")
+        return None
 
-drive_service_sa = get_drive_service()
+drive_service_sa = get_drive_service_sa()
 
 def get_files(folder_id):
     """Mengambil daftar file di dalam folder Google Drive."""
@@ -71,12 +77,11 @@ def get_files(folder_id):
         results = drive_service_sa.files().list(
             q=f"'{folder_id}' in parents and trashed = false",
             pageSize=100,
-            fields="nextPageToken, files(id, name, parents)"
+            fields="nextPageToken, files(id, name, parents, mimeType, modifiedTime, size)"
         ).execute()
-        files = results.get("files", [])
-        return files
+        return results.get("files", [])
     except Exception as e:
-        print(f"Error saat mengambil file: {e}")
+        logging.error(f"Error saat mengambil file: {e}")
         return []
 
 def get_file_by_id(file_id):
@@ -84,7 +89,7 @@ def get_file_by_id(file_id):
     try:
         return drive_service_sa.files().get(fileId=file_id, fields="id, name, parents").execute()
     except Exception as e:
-        print(f"Error saat mengambil file dengan ID {file_id}: {e}")
+        logging.error(f"Error saat mengambil file dengan ID {file_id}: {e}")
         return None
 
 def move_file(file_id, new_parent_id):
@@ -98,13 +103,14 @@ def move_file(file_id, new_parent_id):
             removeParents=previous_parents,
             fields="id, parents"
         ).execute()
+        logging.info(f"File {file_id} berhasil dipindahkan ke folder {new_parent_id}.")
         return True
-    except Exception as e:
-        print(f"Error saat memindahkan file: {e}")
+    except HttpError as e:
+        logging.error(f"Error saat memindahkan file: {e}")
         return False
 
-def add_signature_to_pdf(input_pdf_path, signature_data_url, keyword):
-    """Menambahkan tanda tangan ke PDF. Tanda tangan akan diletakkan di bawah keyword."""
+def add_signature_to_pdf(input_pdf_path, signature_data_url):
+    """Menambahkan tanda tangan ke PDF. Tanda tangan akan diletakkan di bagian bawah."""
     try:
         header, encoded_data = signature_data_url.split(",", 1)
         signature_binary_data = base64.b64decode(encoded_data)
@@ -125,6 +131,7 @@ def add_signature_to_pdf(input_pdf_path, signature_data_url, keyword):
 
         for i in range(len(input_pdf.pages)):
             page = input_pdf.pages[i]
+            # Hanya tambahkan tanda tangan ke halaman terakhir
             if i == len(input_pdf.pages) - 1:
                 page.merge_page(sig_pdf.pages[0])
             output.add_page(page)
@@ -136,11 +143,11 @@ def add_signature_to_pdf(input_pdf_path, signature_data_url, keyword):
         return signed_pdf_path
 
     except Exception as e:
-        print(f"Error saat menambahkan tanda tangan ke PDF: {e}")
+        logging.error(f"Error saat menambahkan tanda tangan ke PDF: {e}")
         return None
 
 # ==============================================================================
-#                                   ROUTING APLIKASI
+#                                    ROUTING APLIKASI
 # ==============================================================================
 @app.route("/")
 def index():
@@ -172,7 +179,8 @@ def view_folder(folder_id):
     """Menampilkan isi folder dengan otentikasi sesi."""
     folder_name = get_folder_name_by_id(folder_id)
     if not folder_name:
-        return "Folder tidak ditemukan.", 404
+        flash("Folder tidak ditemukan.", "error")
+        return redirect(url_for("index"))
 
     # Tangani permintaan POST (login)
     if request.method == "POST":
@@ -197,8 +205,19 @@ def view_folder(folder_id):
 # --- Rute untuk OAuth 2.0 ---
 @app.route("/authorize")
 def authorize():
-    flow = Flow.from_client_secrets_file(
-        "client_secret.json",  # Ganti dengan path file rahasia klien Anda
+    """Memulai alur otorisasi OAuth."""
+    # Membuat objek flow dari kredensial yang ada di variabel lingkungan
+    flow_data = {
+        "web": {
+            "client_id": GOOGLE_CLIENT_ID,
+            "client_secret": GOOGLE_CLIENT_SECRET,
+            "redirect_uris": [GOOGLE_REDIRECT_URI],
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+        }
+    }
+    flow = Flow.from_client_secrets_json(
+        flow_data,
         scopes=OAUTH_SCOPES,
         redirect_uri=GOOGLE_REDIRECT_URI
     )
@@ -211,34 +230,39 @@ def authorize():
 
 @app.route("/oauth2callback")
 def oauth2callback():
+    """Menangani callback dari Google setelah otorisasi."""
     state = session.get("oauth_state")
     if not state or request.args.get("state") != state:
         flash("State tidak valid.", "error")
         return redirect(url_for("index"))
 
-    flow = Flow.from_client_secrets_file(
-        "client_secret.json", # Ganti dengan path file rahasia klien Anda
+    flow_data = {
+        "web": {
+            "client_id": GOOGLE_CLIENT_ID,
+            "client_secret": GOOGLE_CLIENT_SECRET,
+            "redirect_uris": [GOOGLE_REDIRECT_URI],
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+        }
+    }
+    flow = Flow.from_client_secrets_json(
+        flow_data,
         scopes=OAUTH_SCOPES,
+        state=state,
         redirect_uri=GOOGLE_REDIRECT_URI
     )
-    flow.fetch_token(authorization_response=request.url)
-    credentials = flow.credentials
     
-    session["oauth_token"] = {
-        "token": credentials.token,
-        "refresh_token": credentials.refresh_token,
-        "token_uri": credentials.token_uri,
-        "client_id": credentials.client_id,
-        "client_secret": credentials.client_secret,
-        "scopes": credentials.scopes,
-    }
-    flash("Otentikasi Google berhasil!", "success")
+    try:
+        flow.fetch_token(authorization_response=request.url)
+        # Kredensial sekarang ada di `flow.credentials`
+        # Untuk contoh ini, kita tidak menggunakan token ini untuk operasi file
+        # tetapi Anda bisa menyimpannya di sini jika diperlukan di masa depan.
+        
+        flash("Otentikasi Google berhasil!", "success")
+    except Exception as e:
+        logging.error(f"Otentikasi OAuth gagal: {e}")
+        flash("Otentikasi Google gagal.", "error")
     
-    target_folder_id = session.get("upload_target_folder_id")
-    if target_folder_id:
-        session.pop("upload_target_folder_id", None)
-        return redirect(url_for("view_folder", folder_id=target_folder_id))
-
     return redirect(url_for("index"))
 
 @app.route("/upload_file", methods=["POST"])
@@ -249,28 +273,7 @@ def upload_file():
         flash("Silakan login kembali untuk mengunggah file.", "error")
         return redirect(url_for("view_folder", folder_id=target_folder_id))
 
-    # Cek kredensial OAuth
-    oauth_token = session.get("oauth_token")
-    if not oauth_token:
-        # Simpan target folder untuk redireksi setelah OAuth
-        session["upload_target_folder_id"] = target_folder_id
-        flash("Silakan otentikasi Google untuk mengunggah file.", "info")
-        return redirect(url_for("authorize"))
-
     try:
-        creds = oauth_credentials.Credentials(**oauth_token)
-        if creds.expired and creds.refresh_token:
-            creds.refresh(AuthRequest())
-            session["oauth_token"] = {
-                "token": creds.token,
-                "refresh_token": creds.refresh_token,
-                "token_uri": creds.token_uri,
-                "client_id": creds.client_id,
-                "client_secret": creds.client_secret,
-                "scopes": creds.scopes,
-            }
-
-        drive_service_oauth = get_drive_service(creds)
         uploaded_file = request.files.get("file")
         
         if not uploaded_file or uploaded_file.filename == "":
@@ -280,28 +283,14 @@ def upload_file():
         filename = secure_filename(uploaded_file.filename)
         mime_type = uploaded_file.content_type
         
-        # ... (Sisa logika unggah file tetap sama) ...
-        is_conversion_needed = False
-        if mime_type in ["application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                         "application/msword",
-                         "application/vnd.oasis.opendocument.text"]:
-            
-            is_conversion_needed = True
-            if "." in filename:
-                name_without_ext = filename.rsplit(".", 1)[0]
-                filename = f"{name_without_ext}.pdf"
-            else:
-                filename += ".pdf"
-
         file_metadata = {
             "name": filename,
-            "parents": [target_folder_id],
-            "mimeType": "application/pdf" if is_conversion_needed else mime_type
+            "parents": [target_folder_id]
         }
         
-        media = MediaIoBaseUpload(uploaded_file.stream, mimetype=mime_type, resumable=True)
+        media = MediaIoBaseUpload(io.BytesIO(uploaded_file.read()), mimetype=mime_type, resumable=True)
 
-        drive_service_oauth.files().create(
+        drive_service_sa.files().create(
             body=file_metadata,
             media_body=media,
             fields="id"
@@ -309,14 +298,17 @@ def upload_file():
 
         flash(f"File '{filename}' berhasil diunggah.", "success")
         
-    except Exception as e:
-        print(f"Error saat mengunggah file: {e}")
-        flash(f"Error: Gagal mengunggah file. {e}", "error")
+    except HttpError as e:
+        logging.error(f"Error saat mengunggah file: {e}")
         if "storage quota" in str(e):
-             flash("Penyimpanan Google Drive penuh. Silakan cek kuota Anda atau hubungi admin.", "error")
+            flash("Penyimpanan Google Drive penuh. Silakan cek kuota Anda atau hubungi admin.", "error")
+        else:
+            flash(f"Error: Gagal mengunggah file. {e}", "error")
+    except Exception as e:
+        logging.error(f"Terjadi kesalahan tak terduga: {e}")
+        flash("Terjadi kesalahan tak terduga saat mengunggah file.", "error")
 
     return redirect(url_for("view_folder", folder_id=target_folder_id))
-
 
 @app.route("/delete_file/<file_id>", methods=["POST"])
 def delete_file(file_id):
@@ -324,13 +316,14 @@ def delete_file(file_id):
     folder_name = get_folder_name_by_id(request.form.get("folder_id"))
     
     if folder_name != "01 - Pengajuan Awal":
-        return "Akses Ditolak: Anda tidak memiliki izin untuk menghapus file di folder ini.", 403
+        flash("Akses Ditolak: Anda tidak memiliki izin untuk menghapus file di folder ini.", "error")
+        return redirect(url_for("view_folder", folder_id=request.form.get("folder_id")))
 
     try:
         drive_service_sa.files().delete(fileId=file_id).execute()
         flash("File berhasil dihapus.", "success")
-    except Exception as e:
-        print(f"Error saat menghapus file: {e}")
+    except HttpError as e:
+        logging.error(f"Error saat menghapus file: {e}")
         flash(f"Gagal menghapus file: {e}", "error")
 
     return redirect(url_for("view_folder", folder_id=request.form.get("folder_id")))
@@ -340,7 +333,8 @@ def load_file(file_id):
     """Halaman loading untuk memulai unduhan file."""
     file = get_file_by_id(file_id)
     if not file:
-        return "File tidak ditemukan.", 404
+        flash("File tidak ditemukan.", "error")
+        return redirect(url_for("index"))
     folder_id = file.get('parents')[0]
     folder_name = get_folder_name_by_id(folder_id)
     return render_template("loading.html", file_id=file_id, folder=folder_name, folder_id=folder_id)
@@ -372,9 +366,9 @@ def download_file_thread(file_id):
                 _, done = downloader.next_chunk()
         
         DOWNLOAD_STATUS[file_id] = "ready"
-        print(f"File {file_id} berhasil diunduh.")
+        logging.info(f"File {file_id} berhasil diunduh.")
     except Exception as e:
-        print(f"Error saat mengunduh file {file_id}: {e}")
+        logging.error(f"Error saat mengunduh file {file_id}: {e}")
         DOWNLOAD_STATUS[file_id] = "error"
 
 @app.route("/check_ready/<file_id>")
@@ -387,16 +381,22 @@ def check_ready(file_id):
 @app.route("/download_pdf/<file_id>")
 def download_pdf(file_id):
     """Mengirim file PDF yang sudah diunduh ke browser untuk pratinjau."""
-    file_metadata = drive_service_sa.files().get(fileId=file_id).execute()
-    filename = file_metadata.get("name")
-    return send_from_directory(TEMP_DIR, filename, mimetype=mimetypes.guess_type(filename)[0])
+    try:
+        file_metadata = drive_service_sa.files().get(fileId=file_id).execute()
+        filename = file_metadata.get("name")
+        return send_from_directory(TEMP_DIR, filename, mimetype=mimetypes.guess_type(filename)[0])
+    except Exception as e:
+        logging.error(f"Gagal mengirim file untuk pratinjau: {e}")
+        flash("Gagal memuat file.", "error")
+        return redirect(url_for("index"))
 
 @app.route("/preview_file/<file_id>")
 def preview_file(file_id):
     """Menampilkan halaman pratinjau dan tanda tangan."""
     file = get_file_by_id(file_id)
     if not file:
-        return "File tidak ditemukan.", 404
+        flash("File tidak ditemukan.", "error")
+        return redirect(url_for("index"))
     
     folder_id = file.get('parents')[0]
     folder_name = get_folder_name_by_id(folder_id)
@@ -442,23 +442,24 @@ def save_signature():
             file_metadata = drive_service_sa.files().get(fileId=file_id).execute()
             filename = file_metadata.get("name")
             temp_pdf_path = os.path.join(TEMP_DIR, filename)
-            signed_path = add_signature_to_pdf(temp_pdf_path, signature_data, folder_name)
+            signed_path = add_signature_to_pdf(temp_pdf_path, signature_data)
             if not signed_path:
                 return "Gagal menambahkan tanda tangan.", 500
 
             media = MediaFileUpload(signed_path, mimetype="application/pdf", resumable=True)
             drive_service_sa.files().update(fileId=file_id, media_body=media).execute()
         
-            if folder_name == "01 - Pengajuan Awal":
-                now = datetime.now()
-                month = now.strftime("%m")
-                year = now.strftime("%y")
-                
-                kode_pengajuan = pengajuan_akhir.upper() + perusahaan.upper()
-                original_filename = filename
-                
-                new_filename = f"{year}/{month} {kode_pengajuan} - {original_filename}"
-                drive_service_sa.files().update(fileId=file_id, body={'name': new_filename}).execute()
+        kode_pengajuan = None
+        if folder_name == "01 - Pengajuan Awal":
+            now = datetime.now()
+            month = now.strftime("%m")
+            year = now.strftime("%y")
+            
+            kode_pengajuan = pengajuan_akhir.upper() + perusahaan.upper()
+            original_filename = filename
+            
+            new_filename = f"{year}/{month} {kode_pengajuan} - {original_filename}"
+            drive_service_sa.files().update(fileId=file_id, body={'name': new_filename}).execute()
         
         folder_mapping = {
             "01 - Pengajuan Awal": {
@@ -483,16 +484,16 @@ def save_signature():
             if target_id:
                 move_file(file_id, target_id)
 
-        if folder_name != "05 - Final":
-            if os.path.exists(temp_pdf_path):
-                os.remove(temp_pdf_path)
-            if os.path.exists(signed_path):
-                os.remove(signed_path)
+        # Hapus file lokal sementara
+        temp_files_to_remove = [temp_pdf_path, signed_path]
+        for f in temp_files_to_remove:
+            if os.path.exists(f):
+                os.remove(f)
 
         return "OK", 200
 
     except Exception as e:
-        print(f"Error dalam save_signature: {e}")
+        logging.error(f"Error dalam save_signature: {e}")
         return "Terjadi kesalahan server.", 500
 
 if __name__ == "__main__":
