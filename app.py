@@ -24,8 +24,6 @@ google_service_account_str = os.getenv("GOOGLE_SERVICE_ACCOUNT")
 if google_service_account_str:
     GOOGLE_SERVICE_ACCOUNT_JSON = json.loads(google_service_account_str)
 else:
-    # Handle case where environment variable is not set
-    # Anda dapat memberikan nilai default, atau menghentikan skrip jika kredensial diperlukan
     raise ValueError("Variabel lingkungan GOOGLE_SERVICE_ACCOUNT tidak ditemukan.")
 
 folders_str = os.getenv("FOLDERS")
@@ -135,23 +133,8 @@ def add_signature_to_pdf(input_pdf_path, signature_data_url, keyword):
         print(f"Error saat menambahkan tanda tangan ke PDF: {e}")
         return None
 
-@app.route("/login", methods=["POST"])
-def login():
-    folder_id = request.form.get("folder_id")
-    password = request.form.get("password")
-
-    if FOLDER_PASSWORDS.get(folder_id) == password:
-        session["logged_in"] = True
-        session["folder_id"] = folder_id
-        flash("Login berhasil!", "success")
-    else:
-        session["logged_in"] = False
-        flash("Password salah. Silakan coba lagi.", "error")
-    
-    return redirect(url_for("view_folder", folder_id=folder_id))
-
 # ==============================================================================
-#                                ROUTING APLIKASI
+#                                   ROUTING APLIKASI
 # ==============================================================================
 @app.route("/")
 def index():
@@ -178,14 +161,26 @@ def index():
 
     return render_template("index.html", group_data=group_data)
 
-@app.route("/folder/<folder_id>", methods=["GET"]) # Hapus POST
+@app.route("/folder/<folder_id>", methods=["GET", "POST"]) # Perbaiki metode di sini
 def view_folder(folder_id):
     """Menampilkan isi folder dengan otentikasi sesi."""
     folder_name = get_folder_name_by_id(folder_id)
     if not folder_name:
         return "Folder tidak ditemukan.", 404
 
-    # Logika otentikasi yang konsisten
+    # Tangani permintaan POST (login)
+    if request.method == "POST":
+        password = request.form.get("password")
+        if FOLDER_PASSWORDS.get(folder_id) == password:
+            session["logged_in"] = True
+            session["folder_id"] = folder_id
+            flash("Login berhasil!", "success")
+            return redirect(url_for("view_folder", folder_id=folder_id))
+        else:
+            flash("Password salah. Silakan coba lagi.", "error")
+            return render_template("password.html", folder_id=folder_id, folder_name=folder_name)
+
+    # Tangani permintaan GET (akses halaman)
     if not session.get("logged_in") or session.get("folder_id") != folder_id:
         return render_template("password.html", folder_id=folder_id, folder_name=folder_name)
 
@@ -220,8 +215,8 @@ def upload_file():
         # Cek apakah file perlu dikonversi ke PDF
         is_conversion_needed = False
         if mime_type in ["application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                       "application/msword",
-                       "application/vnd.oasis.opendocument.text"]:
+                         "application/msword",
+                         "application/vnd.oasis.opendocument.text"]:
             
             is_conversion_needed = True
             if "." in filename:
@@ -235,7 +230,6 @@ def upload_file():
             
         media = MediaIoBaseUpload(uploaded_file.stream, mimetype=mime_type, resumable=True)
 
-        # Hapus baris 'convert=is_conversion_needed'
         drive_service.files().create(
             body=file_metadata,
             media_body=media,
@@ -403,7 +397,7 @@ def save_signature():
         # Pindahkan file ke folder berikutnya
         folder_mapping = {
             "01 - Pengajuan Awal": {
-                "SR": "02A - SPV HRGA", "MR": "02B - PAMO", "GR": "02B - PAMO", # Mengubah alur untuk GR dan MR ke PAMO sesuai format naming
+                "SR": "02A - SPV HRGA", "MR": "02B - PAMO", "GR": "02B - PAMO",
                 "SP": "02A - SPV HRGA", "MP": "02A - SPV HRGA", "GP": "02A - SPV HRGA",
             },
             "02A - SPV HRGA": {"SR": "03A - SPV", "MR": "03B - Manager", "GR": "03C - General"},
