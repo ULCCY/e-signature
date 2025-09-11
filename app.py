@@ -1,24 +1,21 @@
 import os
 import io
 import base64
+import json
+import threading
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash, send_from_directory
 from dotenv import load_dotenv
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload, MediaFileUpload, MediaIoBaseDownload
+from googleapiclient.http import MediaIoBaseUpload, MediaIoBaseDownload
 from reportlab.pdfgen import canvas as pdf_canvas
 from reportlab.lib.pagesizes import A4
 from PyPDF2 import PdfReader, PdfWriter
-import json
-import threading
 from werkzeug.utils import secure_filename
 from datetime import datetime
 import mimetypes
-
-# Import necessary classes for the OAuth flow
 from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request
-import pickle
 
 # Muat variabel dari file .env
 load_dotenv()
@@ -28,7 +25,6 @@ def load_env_variable(var_name, is_json=False):
     value = os.getenv(var_name)
     if value is None:
         print(f"ERROR: Variabel lingkungan '{var_name}' tidak ditemukan. Mohon setel di dasbor Render.")
-        # Mengembalikan None atau nilai default yang aman untuk menghindari crash
         return None
     
     if is_json:
@@ -48,8 +44,6 @@ GOOGLE_CLIENT_SECRETS_JSON = load_env_variable("GOOGLE_CLIENT_SECRETS", is_json=
 # Pastikan semua variabel penting dimuat
 if not all([SECRET_KEY, GOOGLE_SERVICE_ACCOUNT_JSON, FOLDERS, FOLDER_PASSWORDS, GOOGLE_CLIENT_SECRETS_JSON]):
     print("FATAL: Satu atau lebih variabel lingkungan penting tidak dimuat. Aplikasi tidak dapat dijalankan.")
-    # Ini akan menyebabkan aplikasi keluar secara paksa di Render jika ada variabel yang hilang
-    # Ini lebih baik daripada membiarkannya berjalan dan gagal saat permintaan dibuat
     exit(1)
 
 app = Flask(__name__)
@@ -63,7 +57,20 @@ if not os.path.exists(TEMP_DIR):
 # Objek global untuk melacak status unduhan file
 DOWNLOAD_STATUS = {}
 
-def get_drive_service():
+# Scopes yang dibutuhkan untuk alur OAuth
+OAUTH_SCOPES = [
+    'https://www.googleapis.com/auth/drive.appdata',
+    'https://www.googleapis.com/auth/drive.metadata.readonly',
+    'https://www.googleapis.com/auth/drive.file',
+    'https://www.googleapis.com/auth/userinfo.profile',
+    'https://www.googleapis.com/auth/userinfo.email',
+    'openid',
+]
+
+# URL redirect setelah otorisasi
+GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:5000/callback")
+
+def get_service_account_service():
     """
     Mendapatkan instance layanan Google Drive dengan otentikasi akun layanan.
     """
@@ -77,25 +84,32 @@ def get_drive_service():
         print(f"Error creating Google Drive service: {e}")
         return None
 
-DRIVE_SERVICE = get_drive_service()
+def get_authenticated_service():
+    """
+    Mendapatkan instance layanan Google Drive yang diautentikasi oleh pengguna
+    melalui alur OAuth.
+    """
+    if 'credentials' not in session:
+        return None
 
-if DRIVE_SERVICE is None:
-    print("Warning: Google Drive service could not be initialized. Check your environment variables.")
+    credentials_data = session['credentials']
+    credentials = service_account.Credentials.from_authorized_user_info(
+        credentials_data,
+        scopes=OAUTH_SCOPES
+    )
 
-# Scopes yang dibutuhkan
-OAUTH_SCOPES = [
-    'https://www.googleapis.com/auth/drive.appdata',
-    'https://www.googleapis.com/auth/drive.metadata.readonly',
-    'https://www.googleapis.com/auth/drive.file',
-    'https://www.googleapis.com/auth/userinfo.profile',
-    'https://www.googleapis.com/auth/userinfo.email',
-    'openid',
-]
+    if credentials and credentials.expired and credentials.refresh_token:
+        credentials.refresh(Request())
+        session['credentials'] = {
+            'token': credentials.token,
+            'refresh_token': credentials.refresh_token,
+            'token_uri': credentials.token_uri,
+            'client_id': credentials.client_id,
+            'client_secret': credentials.client_secret,
+            'scopes': credentials.scopes
+        }
 
-# URL redirect setelah otorisasi
-GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:5000/callback")
-# Pastikan URL redirect sama persis dengan yang terdaftar di Google Cloud Console
-# Untuk Render, ini harus berupa URL publik Anda, misalnya: https://e-signature-d7er.onrender.com/callback
+    return build('drive', 'v3', credentials=credentials)
 
 @app.route('/')
 def home():
@@ -110,7 +124,8 @@ def login():
         session['logged_in'] = True
         session['folder_name'] = selected_folder
         session['folder_id'] = FOLDERS[selected_folder]
-        return redirect(url_for('folder_view', folder_id=session['folder_id']))
+        # Redirect ke alur otorisasi Google setelah berhasil login
+        return redirect(url_for('authorize'))
     else:
         flash('Password salah atau folder tidak ditemukan.')
         return redirect(url_for('home'))
@@ -120,6 +135,8 @@ def logout():
     session.pop('logged_in', None)
     session.pop('folder_id', None)
     session.pop('folder_name', None)
+    session.pop('credentials', None)
+    flash('Berhasil keluar.')
     return redirect(url_for('home'))
 
 @app.route('/folder/<folder_id>')
@@ -131,70 +148,30 @@ def folder_view(folder_id):
 
 @app.route('/authorize')
 def authorize():
-    # Menggunakan `from_client_config` untuk memuat rahasia klien dari memori
-    # Alih-alih dari file, yang tidak tersedia di lingkungan Render
     flow = Flow.from_client_config(
         client_config=GOOGLE_CLIENT_SECRETS_JSON,
         scopes=OAUTH_SCOPES,
         redirect_uri=GOOGLE_REDIRECT_URI
     )
-
     authorization_url, state = flow.authorization_url(
         access_type='offline',
         include_granted_scopes='true'
     )
-
     session['oauth_state'] = state
-    session['redirect_uri'] = GOOGLE_REDIRECT_URI
-
     return redirect(authorization_url)
 
 @app.route('/callback')
 def callback():
     state = session.get('oauth_state')
-    redirect_uri = session.get('redirect_uri')
-
     flow = Flow.from_client_config(
         client_config=GOOGLE_CLIENT_SECRETS_JSON,
         scopes=OAUTH_SCOPES,
         state=state,
-        redirect_uri=redirect_uri
+        redirect_uri=GOOGLE_REDIRECT_URI
     )
-
     try:
         flow.fetch_token(authorization_response=request.url)
-    except Exception as e:
-        print(f"Error fetching token: {e}")
-        flash('Otentikasi Google gagal. Silakan coba lagi.')
-        return redirect(url_for('home'))
-
-    credentials = flow.credentials
-    session['credentials'] = {
-        'token': credentials.token,
-        'refresh_token': credentials.refresh_token,
-        'token_uri': credentials.token_uri,
-        'client_id': credentials.client_id,
-        'client_secret': credentials.client_secret,
-        'scopes': credentials.scopes
-    }
-
-    flash('Otentikasi berhasil! Sekarang Anda dapat mengunggah file ke Google Drive.')
-    return redirect(url_for('folder_view', folder_id=session['folder_id']))
-
-
-def get_authenticated_service():
-    if 'credentials' not in session:
-        return None
-
-    credentials_data = session['credentials']
-    credentials = service_account.Credentials.from_authorized_user_info(
-        credentials_data,
-        scopes=OAUTH_SCOPES
-    )
-
-    # Memeriksa kredensial, jika hampir kedaluwarsa, segarkan
-    if credentials and credentials.expired and credentials.refresh_token:
-        credentials.refresh(Request())
+        credentials = flow.credentials
         session['credentials'] = {
             'token': credentials.token,
             'refresh_token': credentials.refresh_token,
@@ -203,64 +180,90 @@ def get_authenticated_service():
             'client_secret': credentials.client_secret,
             'scopes': credentials.scopes
         }
-
-    return build('drive', 'v3', credentials=credentials)
+        flash('Otentikasi Google berhasil!')
+        return redirect(url_for('folder_view', folder_id=session.get('folder_id')))
+    except Exception as e:
+        print(f"Error fetching token: {e}")
+        flash('Otentikasi Google gagal. Silakan coba lagi.')
+        return redirect(url_for('home'))
 
 @app.route('/upload_file', methods=['POST'])
 def upload_file():
-    if 'file' not in request.files:
+    if not session.get('logged_in'):
+        flash('Anda harus masuk terlebih dahulu.')
+        return redirect(url_for('home'))
+
+    if 'file' not in request.files or request.files['file'].filename == '':
         flash('Tidak ada file yang dipilih.')
-        return redirect(request.referrer or url_for('home'))
+        return redirect(url_for('folder_view', folder_id=session['folder_id']))
 
     file = request.files['file']
-    if file.filename == '':
-        flash('Tidak ada file yang dipilih.')
-        return redirect(request.referrer or url_for('home'))
+    user_name = request.form.get('user_name', 'anonim')
+    folder_id = session.get('folder_id')
+    drive_service = get_authenticated_service()
 
-    folder_id = request.form.get('folder_id')
-    user_name = request.form.get('user_name')
-
-    if not all([folder_id, user_name, file]):
-        flash('Data tidak lengkap. Unggahan dibatalkan.')
-        return redirect(request.referrer or url_for('home'))
-
-    drive_service = get_drive_service()
     if not drive_service:
-        flash("Layanan Drive tidak dapat diakses.")
-        return redirect(request.referrer or url_for('home'))
+        flash("Layanan Drive tidak dapat diakses. Silakan masuk kembali.")
+        return redirect(url_for('home'))
 
     try:
+        original_filename = secure_filename(file.filename)
+        timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+        new_filename = f"{timestamp}_{user_name}_{original_filename}"
+        
+        file_mime_type = mimetypes.guess_type(file.filename)[0] or 'application/octet-stream'
+        
+        media_body = MediaIoBaseUpload(
+            io.BytesIO(file.read()),
+            mimetype=file_mime_type,
+            resumable=True
+        )
+        
         file_metadata = {
-            'name': f"{user_name}_{file.filename}",
+            'name': new_filename,
             'parents': [folder_id]
         }
-        media = MediaIoBaseUpload(file.stream, mimetype=file.mimetype, resumable=True)
-        file_obj = drive_service.files().create(body=file_metadata, media_body=media, fields='id').execute()
         
-        flash(f'File "{file.filename}" berhasil diunggah dengan nama baru "{user_name}_{file.filename}".')
+        drive_service.files().create(
+            body=file_metadata,
+            media_body=media_body,
+            fields='id'
+        ).execute()
+        
+        flash(f'Berkas "{new_filename}" berhasil diunggah.')
         
     except Exception as e:
-        print(f"Error saat mengunggah file: {e}")
-        # Tangani error khusus jika kuota terlampaui
-        if "storageQuotaExceeded" in str(e):
-            flash("Gagal mengunggah file: Kuota penyimpanan akun layanan Anda telah terlampaui.")
-        else:
-            flash(f"Error saat mengunggah file: {e}")
-            
-    return redirect(request.referrer or url_for('home'))
+        print(f"Error uploading file: {e}")
+        flash(f'Gagal mengunggah berkas: {e}')
+        
+    return redirect(url_for('folder_view', folder_id=folder_id))
 
+@app.route('/delete_file/<file_id>', methods=['POST'])
+def delete_file(file_id):
+    if not session.get('logged_in'):
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    
+    drive_service = get_authenticated_service()
+    if not drive_service:
+        return jsonify({'success': False, 'error': 'Layanan Drive tidak dapat diakses. Silakan masuk kembali.'}), 401
+    
+    try:
+        drive_service.files().delete(fileId=file_id).execute()
+        return jsonify({'success': True, 'message': 'Berkas berhasil dihapus.'})
+    except Exception as e:
+        print(f"Error deleting file: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/list_files/<folder_id>')
 def list_files(folder_id):
     if not session.get('logged_in') or session.get('folder_id') != folder_id:
         return jsonify({'error': 'Unauthorized'}), 401
     
-    drive_service = get_drive_service()
+    drive_service = get_authenticated_service()
     if not drive_service:
         return jsonify({'error': 'Layanan Google Drive tidak dapat diakses'}), 500
 
     try:
-        # Gunakan 'in parents' untuk mencari file di dalam folder tertentu
         query = f"'{folder_id}' in parents and trashed = false"
         results = drive_service.files().list(
             q=query,
@@ -269,7 +272,6 @@ def list_files(folder_id):
         ).execute()
         files = results.get('files', [])
         
-        # Format ukuran file agar lebih mudah dibaca
         def format_size(size_bytes):
             if not size_bytes:
                 return "0 B"
@@ -280,7 +282,6 @@ def list_files(folder_id):
                 i += 1
             return f"{size_bytes:.2f} {size_name[i]}"
 
-        # Tambahkan informasi tambahan ke setiap file
         file_list = []
         for file in files:
             file_info = {
@@ -297,29 +298,6 @@ def list_files(folder_id):
     except Exception as e:
         print(f"Error listing files: {e}")
         return jsonify({'error': str(e)}), 500
-
-@app.route('/delete_file/<file_id>', methods=['POST'])
-def delete_file(file_id):
-    if not session.get('logged_in'):
-        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
-
-    drive_service = get_authenticated_service()
-    if not drive_service:
-        return jsonify({'success': False, 'error': 'Layanan Drive tidak dapat diakses'}), 500
-
-    try:
-        drive_service.files().delete(fileId=file_id).execute()
-        return jsonify({'success': True, 'message': 'File berhasil dihapus.'})
-    except Exception as e:
-        print(f"Error deleting file: {e}")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/download_status/<task_id>')
-def download_status(task_id):
-    status = DOWNLOAD_STATUS.get(task_id)
-    if not status:
-        return jsonify({'error': 'Status tidak ditemukan.'}), 404
-    return jsonify(status)
 
 def download_file_async(drive_service, file_id, file_name, task_id):
     try:
@@ -350,21 +328,26 @@ def download_file(file_id, file_name):
         flash("Anda harus login untuk mengunduh file.")
         return redirect(url_for('home'))
 
-    drive_service = get_drive_service()
+    drive_service = get_authenticated_service()
     if not drive_service:
         flash("Layanan Drive tidak dapat diakses.")
         return redirect(url_for('home'))
 
-    # Buat ID tugas unik untuk melacak status
     task_id = str(os.urandom(16).hex())
     DOWNLOAD_STATUS[task_id] = {'status': 'pending', 'progress': 0}
 
-    # Jalankan unduhan di thread terpisah
     thread = threading.Thread(target=download_file_async, args=(drive_service, file_id, file_name, task_id))
     thread.start()
 
     return jsonify({'task_id': task_id})
 
+@app.route('/download_status/<task_id>')
+def download_status(task_id):
+    status = DOWNLOAD_STATUS.get(task_id)
+    if not status:
+        return jsonify({'error': 'Status tidak ditemukan.'}), 404
+    return jsonify(status)
+    
 @app.route('/get_download_file/<task_id>')
 def get_download_file(task_id):
     status = DOWNLOAD_STATUS.get(task_id)
@@ -375,15 +358,11 @@ def get_download_file(task_id):
     if not file_path or not os.path.exists(file_path):
         return jsonify({'error': 'File tidak ditemukan.'}), 404
 
-    # Ambil nama file asli
     filename = os.path.basename(file_path)
-    
-    # Deteksi mimetype
     mimetype, _ = mimetypes.guess_type(filename)
     if mimetype is None:
         mimetype = 'application/octet-stream'
 
-    # Kirim file
     response = send_from_directory(
         directory=TEMP_DIR,
         path=filename,
@@ -391,8 +370,7 @@ def get_download_file(task_id):
         mimetype=mimetype,
         download_name=filename
     )
-
-    # Hapus file setelah dikirim
+    
     os.remove(file_path)
     del DOWNLOAD_STATUS[task_id]
 
@@ -400,9 +378,9 @@ def get_download_file(task_id):
 
 # Rute untuk pembuatan PDF dan penandatanganan
 def create_pdf(text, file_name):
-    path = os.path.join(TEMP_DIR, file_name)
+    path = os.path.join(TEMP_DIR, secure_filename(file_name))
     c = pdf_canvas.Canvas(path, pagesize=A4)
-    c.drawString(100, 750, text)
+    c.drawString(40, 750, text)
     c.save()
     return path
 
@@ -411,49 +389,31 @@ def add_signature_to_pdf(pdf_path, signature_data):
         reader = PdfReader(pdf_path)
         writer = PdfWriter()
 
-        # Dapatkan gambar dari data base64
-        image_data = base64.b64decode(signature_data.split(',')[1])
-        img = io.BytesIO(image_data)
-
         for page in reader.pages:
             writer.add_page(page)
-
-        # Tambahkan tanda tangan ke halaman terakhir
-        last_page = writer.pages[-1]
         
-        # Simpan tanda tangan sementara
-        sig_path = os.path.join(TEMP_DIR, "signature.png")
+        image_data = base64.b64decode(signature_data.split(',')[1])
+        sig_path = os.path.join(TEMP_DIR, f"signature_{os.path.basename(pdf_path)}.png")
         with open(sig_path, "wb") as f:
             f.write(image_data)
 
-        # Ubah ukuran tanda tangan
-        # Menggunakan reportlab untuk menambahkan gambar
-        pdf_signer = pdf_canvas.Canvas(os.path.join(TEMP_DIR, "signed_temp.pdf"), pagesize=A4)
-        pdf_signer.drawInlineImage(sig_path, x=100, y=100, width=100, height=50) # Sesuaikan ukuran dan posisi
-        pdf_signer.showPage()
-        pdf_signer.save()
+        overlay_buffer = io.BytesIO()
+        overlay_c = pdf_canvas.Canvas(overlay_buffer, pagesize=A4)
+        overlay_c.drawImage(sig_path, 400, 100, width=150, height=50) 
+        overlay_c.save()
+        overlay_buffer.seek(0)
+        overlay_reader = PdfReader(overlay_buffer)
         
-        # Gabungkan PDF
-        signed_reader = PdfReader(os.path.join(TEMP_DIR, "signed_temp.pdf"))
-        # Asumsi ini hanyalah contoh, dalam implementasi nyata Anda perlu menggabungkan halaman dengan benar
+        first_page = writer.pages[0]
+        first_page.merge_page(overlay_reader.pages[0])
         
-        # Gabungkan file
-        output_pdf = PdfWriter()
-        for p in reader.pages:
-            output_pdf.add_page(p)
-
-        # Tambahkan tanda tangan ke halaman
-        # Ini adalah contoh sederhana, Anda mungkin perlu mengkombinasikan halaman secara lebih kompleks
-        # atau menggunakan library lain untuk penandatanganan PDF
-        
-        # Simpan file yang telah ditandatangani
         signed_path = os.path.join(TEMP_DIR, f"signed_{os.path.basename(pdf_path)}")
         with open(signed_path, "wb") as f:
-            output_pdf.write(f)
+            writer.write(f)
 
         os.remove(sig_path)
-        # os.remove(os.path.join(TEMP_DIR, "signed_temp.pdf"))
-
+        os.remove(pdf_path)
+        
         return signed_path
     
     except Exception as e:
@@ -469,7 +429,7 @@ def create_and_sign_pdf():
     if not all([text_content, signature_data, file_name]):
         return jsonify({'error': 'Data tidak lengkap.'}), 400
 
-    pdf_path = create_pdf(text_content, file_name)
+    pdf_path = create_pdf(text_content, f"{file_name}.pdf")
     if not pdf_path:
         return jsonify({'error': 'Gagal membuat PDF.'}), 500
 
@@ -478,9 +438,6 @@ def create_and_sign_pdf():
         os.remove(pdf_path)
         return jsonify({'error': 'Gagal menambahkan tanda tangan.'}), 500
     
-    # Hapus file PDF sementara setelah penandatanganan
-    os.remove(pdf_path)
-
     return send_from_directory(
         directory=TEMP_DIR,
         path=os.path.basename(signed_pdf_path),
