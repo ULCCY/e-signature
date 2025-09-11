@@ -148,7 +148,7 @@
 <body>
     <div class="container">
         <h2>Preview Dokumen</h2>
-        <iframe src="{{ url_for('preview_file', file_id=file_id) }}"></iframe>
+        <iframe src="{{ url_for('download_pdf', file_id=file_id) }}"></iframe>
 
         <div class="signature-area">
             <h3>Silakan Tanda Tangan:</h3>
@@ -197,11 +197,9 @@
                 </div>
             </div>
             {% endif %}
-
         </div>
     </div>
     
-    <!-- Custom Modal -->
     <div id="status-modal" class="modal-overlay hidden">
         <div class="modal-content">
             <p id="modal-message"></p>
@@ -338,11 +336,14 @@
                 });
 
                 if (!response.ok) {
-                    throw new Error('Terjadi kesalahan saat menyimpan tanda tangan.');
+                    const errorData = await response.json();
+                    throw new Error(errorData.message || 'Terjadi kesalahan saat menyimpan tanda tangan.');
                 }
                 
                 showModal("Dokumen berhasil ditandatangani dan dipindahkan.", false, false);
-                setTimeout(() => window.location.href = "{{ url_for('index') }}", 2000);
+                
+                // Perbaikan #2: Ubah URL redirect
+                setTimeout(() => window.location.href = "{{ url_for('view_folder', folder_id=folder_id) }}", 2000);
 
             } catch (error) {
                 showModal("Terjadi kesalahan: " + error.message, false, false);
