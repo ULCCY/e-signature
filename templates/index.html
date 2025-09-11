@@ -5,69 +5,261 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Digital Document Management</title>
     <link href="[https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap](https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap)" rel="stylesheet">
-    <script src="[https://cdn.tailwindcss.com](https://cdn.tailwindcss.com)"></script>
     <style>
+        :root {
+            --primary-color: #4CAF50;
+            --secondary-color: #f4f6f9;
+            --text-color: #333;
+            --card-bg: #fff;
+            --shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+            --border-radius: 12px;
+        }
+
         body {
             font-family: 'Poppins', sans-serif;
+            margin: 0;
+            padding: 40px 20px;
+            background-color: var(--secondary-color);
+            color: var(--text-color);
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: auto;
+        }
+
+        h1 {
+            text-align: center;
+            font-weight: 700;
+            color: #2c3e50;
+            margin-bottom: 50px;
+        }
+
+        h2 {
+            font-weight: 600;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #ecf0f1;
+            padding-bottom: 10px;
+            color: #34495e;
+        }
+
+        .group {
+            margin-bottom: 50px;
+        }
+
+        .folder-boxes {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+
+        .folder {
+            flex: 1 1 280px;
+            padding: 25px;
+            background-color: var(--card-bg);
+            border-radius: var(--border-radius);
+            box-shadow: var(--shadow);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .folder:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+        }
+
+        .folder h3 {
+            margin: 0 0 10px;
+            font-size: 1.25rem;
+            color: #2c3e50;
+        }
+
+        .status {
+            font-size: 0.9rem;
+            font-weight: 600;
+            padding: 5px 10px;
+            border-radius: 50px;
+            align-self: flex-start;
+            margin-top: 10px;
+        }
+
+        .status.available {
+            background-color: #e8f5e9;
+            color: #388e3c;
+        }
+        .status.empty {
+            background-color: #eceff1;
+            color: #7f8c8d;
+        }
+
+        .folder-link {
+            text-decoration: none;
+            color: white;
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+            text-align: center;
+            margin-top: 20px;
+            transition: background-color 0.3s ease;
+        }
+
+        .folder-link.green {
+            background-color: var(--primary-color);
+        }
+
+        .folder-link.green:hover {
+            background-color: #43a047;
+        }
+
+        .folder-link.gray {
+            background-color: #95a5a6;
+            cursor: not-allowed;
+        }
+
+        /* Modal Styles */
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            visibility: hidden;
+            opacity: 0;
+            transition: visibility 0s, opacity 0.3s;
+        }
+
+        .modal.open {
+            visibility: visible;
+            opacity: 1;
+        }
+
+        .modal-content {
+            background-color: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
+            width: 90%;
+            max-width: 400px;
+            transform: scale(0.95);
+            transition: transform 0.3s ease;
+        }
+
+        .modal.open .modal-content {
+            transform: scale(1);
+        }
+
+        .modal-header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .modal-header h4 {
+            margin: 0;
+            font-size: 1.5rem;
+            color: #2c3e50;
+        }
+
+        .modal-body input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-sizing: border-box;
+        }
+
+        .modal-footer {
+            display: flex;
+            gap: 10px;
+        }
+
+        .modal-footer button {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background-color 0.3s ease;
+        }
+
+        .modal-footer .btn-cancel {
+            background-color: #eceff1;
+            color: #7f8c8d;
+        }
+
+        .modal-footer .btn-submit {
+            background-color: var(--primary-color);
+            color: white;
+        }
+
+        .modal-footer .btn-submit:hover {
+            background-color: #43a047;
         }
     </style>
 </head>
-<body class="bg-slate-100 text-gray-800 antialiased leading-relaxed p-4 md:p-10">
-    <div class="container max-w-7xl mx-auto">
-        <h1 class="text-4xl md:text-5xl font-extrabold text-center text-gray-900 mb-12">
-            <span class="inline-block mr-2 align-middle">📁</span> Digital Document Management
-        </h1>
+<body>
+    <div class="container">
+        <h1>📁 Digital Document Management</h1>
 
         {% with messages = get_flashed_messages() %}
             {% if messages %}
-                <div class="bg-yellow-500 text-white p-4 rounded-lg mb-6 text-left shadow-md">
+                <div style="background-color: #f39c12; color: white; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
                     {% for message in messages %}
                         {{ message }}
                     {% endfor %}
                 </div>
             {% endif %}
         {% endwith %}
-
+        
         <form action="{{ url_for('login') }}" method="post" id="loginForm">
-            <input type="hidden" name="folder_id" id="folder_id">
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-                {% for group_name, folders in group_data.items() %}
+            <input type="hidden" name="folder_id" id="folderIdInput">
+
+            {% for group in ['Pengajuan Awal', 'Rabat', 'PRS', 'Final'] %}
                 <div class="group">
-                    <h2 class="text-2xl font-bold mb-6 border-b-2 border-green-500 pb-3">{{ group_name }}</h2>
-                    <div class="flex flex-col gap-6">
-                        {% for f in folders %}
-                        <div class="folder bg-white p-6 rounded-xl shadow-lg transform transition duration-300 hover:scale-105 hover:shadow-xl">
-                            <h3 class="text-xl font-semibold text-gray-800 mb-2">{{ f.name }}</h3>
-                            <p class="text-sm text-gray-600 mb-4">Terdapat <span class="font-bold">{{ f.count }}</span> dokumen menunggu.</p>
-                            
-                            <div class="flex items-center justify-between mt-auto">
+                    <h2>{{ group }}</h2>
+                    <div class="folder-boxes">
+                        {% for f in group_data.get(group, []) %}
+                            <div class="folder">
+                                <h3>{{ f.name }}</h3>
+                                <p>Terdapat {{ f.count }} dokumen menunggu.</p>
+
                                 {% if f.count > 0 %}
-                                    <button type="submit" data-folder-id="{{ f.id }}" class="folder-link bg-green-500 text-white py-2 px-4 rounded-lg font-semibold hover:bg-green-600 transition duration-300">
+                                    <a href="#" data-folder-id="{{ f.id }}" class="folder-link green open-modal">
                                         Buka Folder
-                                    </button>
-                                    <span class="status text-green-700 bg-green-200 text-xs font-semibold py-1 px-3 rounded-full">Dokumen Tersedia</span>
+                                    </a>
+                                    <span class="status available">Dokumen Tersedia</span>
                                 {% else %}
-                                    <button type="button" class="folder-link bg-gray-400 text-white py-2 px-4 rounded-lg font-semibold cursor-not-allowed">
+                                    <a href="#" class="folder-link gray" onclick="return false;">
                                         Buka Folder
-                                    </button>
-                                    <span class="status text-gray-500 bg-gray-200 text-xs font-semibold py-1 px-3 rounded-full">Tidak ada dokumen</span>
+                                    </a>
+                                    <span class="status empty">Tidak ada dokumen</span>
                                 {% endif %}
                             </div>
-                        </div>
                         {% endfor %}
                     </div>
                 </div>
-                {% endfor %}
-            </div>
+            {% endfor %}
 
-            <!-- Modal for password input -->
-            <div id="passwordModal" class="fixed inset-0 bg-gray-900 bg-opacity-75 hidden items-center justify-center p-4">
-                <div class="bg-white p-8 rounded-xl shadow-2xl max-w-sm w-full transform transition-all scale-95 duration-300 ease-out">
-                    <h4 class="text-2xl font-bold text-gray-800 mb-6 text-center">Masukkan Kata Sandi</h4>
-                    <input type="password" name="password" id="passwordInput" required class="w-full p-3 mb-4 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 transition duration-200">
-                    <div class="flex justify-between gap-4">
-                        <button type="button" id="closeModalBtn" class="flex-1 py-3 bg-gray-300 text-gray-800 font-bold rounded-lg hover:bg-gray-400 transition duration-300">Batal</button>
-                        <button type="submit" class="flex-1 py-3 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition duration-300">Masuk</button>
+            <!-- Password Modal -->
+            <div id="passwordModal" class="modal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h4>Masukkan Kata Sandi</h4>
+                    </div>
+                    <div class="modal-body">
+                        <input type="password" name="password" id="passwordInput" required>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn-cancel" onclick="closeModal()">Batal</button>
+                        <button type="submit" class="btn-submit">Masuk</button>
                     </div>
                 </div>
             </div>
@@ -75,28 +267,25 @@
     </div>
 
     <script>
-        const folderButtons = document.querySelectorAll('.folder-link');
-        const passwordModal = document.getElementById('passwordModal');
-        const loginForm = document.getElementById('loginForm');
-        const folderIdInput = document.getElementById('folder_id');
-        const closeModalBtn = document.getElementById('closeModalBtn');
+        function openModal(folderId) {
+            document.getElementById('folderIdInput').value = folderId;
+            document.getElementById('passwordModal').classList.add('open');
+        }
 
-        folderButtons.forEach(button => {
-            if (button.dataset.folderId) {
-                button.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    folderIdInput.value = e.target.dataset.folderId;
-                    passwordModal.classList.remove('hidden');
-                    passwordModal.classList.add('flex');
-                    document.getElementById('passwordInput').focus();
-                });
-            }
-        });
+        function closeModal() {
+            document.getElementById('passwordModal').classList.remove('open');
+            document.getElementById('folderIdInput').value = '';
+            document.getElementById('passwordInput').value = '';
+        }
 
-        closeModalBtn.addEventListener('click', () => {
-            passwordModal.classList.remove('flex');
-            passwordModal.classList.add('hidden');
-            folderIdInput.value = '';
+        document.querySelectorAll('.open-modal').forEach(button => {
+            button.addEventListener('click', (event) => {
+                event.preventDefault();
+                const folderId = event.target.getAttribute('data-folder-id');
+                if (folderId) {
+                    openModal(folderId);
+                }
+            });
         });
     </script>
 </body>
