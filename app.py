@@ -43,13 +43,14 @@ SCOPES = ['https://www.googleapis.com/auth/drive']
 def index():
     creds = session.get('creds')
     if not creds:
-        return render_template('index.html')
+        # Pass an empty dictionary for group_data when no creds exist
+        return render_template('index.html', group_data={})
 
+    # The rest of your existing code for a logged-in user
     creds = Credentials.from_authorized_user_info(json.loads(creds), SCOPES)
     service = build('drive', 'v3', credentials=creds)
 
     try:
-        # Panggil API Drive v3
         response = service.files().list(
             q="'root' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false",
             fields="nextPageToken, files(id, name)").execute()
@@ -58,6 +59,7 @@ def index():
         
         folders_with_passwords = {name: {'id': main_folders.get(name), 'password_required': name in FOLDER_PASSWORDS} for name in FOLDERS.keys()}
 
+        # The existing code that correctly passes `folders`
         return render_template('index.html', folders=folders_with_passwords)
     except Exception as e:
         flash(f"Error accessing Google Drive: {e}", "error")
