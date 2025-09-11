@@ -18,10 +18,27 @@ import mimetypes
 # Muat variabel dari file .env
 load_dotenv()
 SECRET_KEY = os.getenv("SECRET_KEY")
-GOOGLE_SERVICE_ACCOUNT_JSON = json.loads(os.getenv("GOOGLE_SERVICE_ACCOUNT"))
-# Periksa apakah FOLDERS dan FOLDER_PASSWORDS sudah dimuat
-FOLDERS = json.loads(os.getenv("FOLDERS"))
-FOLDER_PASSWORDS = json.loads(os.getenv("FOLDER_PASSWORDS"))
+
+# Periksa dan muat variabel lingkungan sebagai JSON
+google_service_account_str = os.getenv("GOOGLE_SERVICE_ACCOUNT")
+if google_service_account_str:
+    GOOGLE_SERVICE_ACCOUNT_JSON = json.loads(google_service_account_str)
+else:
+    # Handle case where environment variable is not set
+    # Anda dapat memberikan nilai default, atau menghentikan skrip jika kredensial diperlukan
+    raise ValueError("Variabel lingkungan GOOGLE_SERVICE_ACCOUNT tidak ditemukan.")
+
+folders_str = os.getenv("FOLDERS")
+if folders_str:
+    FOLDERS = json.loads(folders_str)
+else:
+    raise ValueError("Variabel lingkungan FOLDERS tidak ditemukan.")
+
+folder_passwords_str = os.getenv("FOLDER_PASSWORDS")
+if folder_passwords_str:
+    FOLDER_PASSWORDS = json.loads(folder_passwords_str)
+else:
+    raise ValueError("Variabel lingkungan FOLDER_PASSWORDS tidak ditemukan.")
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
