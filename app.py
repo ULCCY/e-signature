@@ -432,13 +432,12 @@ def perform_download(creds, file_id, filename):
         file_path = os.path.join(TEMP_DIR, filename)
         
         request_download = service.files().get_media(fileId=file_id)
-        with open(file_path, 'wb') as fh:
-            downloader = MediaIoBaseDownload(fh, request_download, chunksize=1024 * 1024)
-            done = False
-            while done is False:
-                status, done = downloader.next_chunk()
-                progress = int(status.progress() * 100)
-                DOWNLOAD_STATUS[file_id]['progress'] = progress
+        downloader = MediaIoBaseDownload(io.FileIO(file_path, 'wb'), request_download, chunksize=1024 * 1024)
+        done = False
+        while done is False:
+            status, done = downloader.next_chunk()
+            progress = int(status.progress() * 100)
+            DOWNLOAD_STATUS[file_id]['progress'] = progress
         
         DOWNLOAD_STATUS[file_id]['done'] = True
     except Exception as e:
