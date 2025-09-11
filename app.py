@@ -22,14 +22,35 @@ import pickle
 
 # Muat variabel dari file .env
 load_dotenv()
-SECRET_KEY = os.getenv("SECRET_KEY")
-GOOGLE_SERVICE_ACCOUNT_JSON = json.loads(os.getenv("GOOGLE_SERVICE_ACCOUNT"))
-# Periksa apakah FOLDERS dan FOLDER_PASSWORDS sudah dimuat
-FOLDERS = json.loads(os.getenv("FOLDERS"))
-FOLDER_PASSWORDS = json.loads(os.getenv("FOLDER_PASSWORDS"))
 
-# Load client secrets from environment variable
-GOOGLE_CLIENT_SECRETS_JSON = json.loads(os.getenv("GOOGLE_CLIENT_SECRETS"))
+# Fungsi untuk memuat variabel lingkungan dan menangani kesalahan jika tidak ada
+def load_env_variable(var_name, is_json=False):
+    value = os.getenv(var_name)
+    if value is None:
+        print(f"ERROR: Variabel lingkungan '{var_name}' tidak ditemukan. Mohon setel di dasbor Render.")
+        # Mengembalikan None atau nilai default yang aman untuk menghindari crash
+        return None
+    
+    if is_json:
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError as e:
+            print(f"ERROR: Variabel lingkungan '{var_name}' bukan JSON yang valid. {e}")
+            return None
+    return value
+
+SECRET_KEY = load_env_variable("SECRET_KEY")
+GOOGLE_SERVICE_ACCOUNT_JSON = load_env_variable("GOOGLE_SERVICE_ACCOUNT", is_json=True)
+FOLDERS = load_env_variable("FOLDERS", is_json=True)
+FOLDER_PASSWORDS = load_env_variable("FOLDER_PASSWORDS", is_json=True)
+GOOGLE_CLIENT_SECRETS_JSON = load_env_variable("GOOGLE_CLIENT_SECRETS", is_json=True)
+
+# Pastikan semua variabel penting dimuat
+if not all([SECRET_KEY, GOOGLE_SERVICE_ACCOUNT_JSON, FOLDERS, FOLDER_PASSWORDS, GOOGLE_CLIENT_SECRETS_JSON]):
+    print("FATAL: Satu atau lebih variabel lingkungan penting tidak dimuat. Aplikasi tidak dapat dijalankan.")
+    # Ini akan menyebabkan aplikasi keluar secara paksa di Render jika ada variabel yang hilang
+    # Ini lebih baik daripada membiarkannya berjalan dan gagal saat permintaan dibuat
+    exit(1)
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
