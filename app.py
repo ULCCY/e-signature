@@ -159,10 +159,19 @@ def move_file(file_id, new_parent_id):
         logging.error(f"Error saat memindahkan file: {e}")
         return False
 
+def download_file_to_bytesio(file_id):
+    """Download file Google Drive ke BytesIO."""
+    fh = io.BytesIO()
+    request = drive_service_sa.files().get_media(fileId=file_id)
+    downloader = MediaIoBaseDownload(fh, request)
+    done = False
+    while not done:
+        _, done = downloader.next_chunk()
+    fh.seek(0)
+    return fh
+
 def add_signature_to_pdf(input_pdf_bytesio, signature_data_url):
-    """Menambahkan tanda tangan ke PDF menggunakan objek BytesIO."""
     try:
-        # Check if signature data is valid
         if not signature_data_url or "," not in signature_data_url:
             logging.error("Invalid signature data URL provided.")
             return None
@@ -170,15 +179,12 @@ def add_signature_to_pdf(input_pdf_bytesio, signature_data_url):
         header, encoded_data = signature_data_url.split(",", 1)
         signature_binary_data = base64.b64decode(encoded_data)
 
-        # Buat PDF tanda tangan dalam memori
         sig_pdf_bytesio = io.BytesIO()
         c = pdf_canvas.Canvas(sig_pdf_bytesio, pagesize=A4)
-        
-        # Check if signature image data is valid and draw it
+
         try:
             image = ImageReader(io.BytesIO(signature_binary_data))
             c.drawImage(image, x=220, y=100, width=150, height=50, mask='auto')
-            
         except Exception as draw_error:
             logging.error(f"Error drawing image with ReportLab: {draw_error}")
             return None
@@ -188,9 +194,8 @@ def add_signature_to_pdf(input_pdf_bytesio, signature_data_url):
 
         input_pdf = PdfReader(input_pdf_bytesio)
         sig_pdf = PdfReader(sig_pdf_bytesio)
-        
-        output = PdfWriter()
 
+        output = PdfWriter()
         for i in range(len(input_pdf.pages)):
             page = input_pdf.pages[i]
             if i == len(input_pdf.pages) - 1:
@@ -200,7 +205,6 @@ def add_signature_to_pdf(input_pdf_bytesio, signature_data_url):
         signed_bytesio = io.BytesIO()
         output.write(signed_bytesio)
         signed_bytesio.seek(0)
-        
         return signed_bytesio
 
     except Exception as e:
@@ -537,9 +541,7 @@ def save_signature():
         signed_bytes = None
         if current_folder_name != "05 - Final":
             # --- Ambil file dari Google Drive ke BytesIO secara langsung ---
-            request_dl = drive_service_sa.files().get_media(fileId=file_id)
-            pdf_bytes = io.BytesIO(request_dl.execute())
-            pdf_bytes.seek(0)
+            pdf_bytes = download_file_to_bytesio(file_id)
 
             signed_bytes = add_signature_to_pdf(pdf_bytes, signature_data)
             
