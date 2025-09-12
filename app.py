@@ -168,7 +168,12 @@ def download_file_to_bytesio(file_id):
     while not done:
         _, done = downloader.next_chunk()
     fh.seek(0)
+
+    if fh.getbuffer().nbytes == 0:
+        logging.error(f"File {file_id} kosong setelah diunduh.")
+        return None
     return fh
+
 
 def add_signature_to_pdf(input_pdf_bytesio, signature_data_url):
     try:
@@ -522,6 +527,15 @@ def preview_file(file_id):
 @app.route("/save_signature", methods=["POST"])
 def save_signature():
     """Menerima tanda tangan, menambahkan ke PDF, mengunggah kembali, memindahkan, dan mengganti nama file."""
+
+    # Pastikan file adalah PDF
+    if file_metadata.get("mimeType") != "application/pdf":
+        return jsonify({"status": "error", "message": "File bukan PDF, tidak bisa ditandatangani."}), 400
+
+    pdf_bytes = download_file_to_bytesio(file_id)
+    if not pdf_bytes:
+        return jsonify({"status": "error", "message": "File kosong atau gagal diunduh."}), 500
+
     try:
         data = request.json
         file_id = data.get("file_id")
