@@ -9,9 +9,6 @@
         body {
             font-family: 'Inter', sans-serif;
         }
-        .modal {
-            display: none; /* Sembunyikan modal secara default */
-        }
     </style>
 </head>
 <body class="bg-gray-100 flex items-start justify-center min-h-screen p-8">
@@ -57,12 +54,12 @@
                         Preview
                     </a>
                     {% if is_pengajuan_awal %}
-                    <button 
-                        onclick="showDeleteModal('{{ file.id }}', '{{ file.name }}', '{{ folder_id }}')"
-                        class="bg-red-600 text-white text-sm font-semibold px-4 py-2 rounded-full hover:bg-red-700 transition-colors"
-                    >
-                        Hapus
-                    </button>
+                    <form action="{{ url_for('delete_file', file_id=file.id) }}" method="post" onsubmit="return confirm('Apakah Anda yakin ingin menghapus file ini?');">
+                        <input type="hidden" name="folder_id" value="{{ folder_id }}">
+                        <button type="submit" class="bg-red-600 text-white text-sm font-semibold px-4 py-2 rounded-full hover:bg-red-700 transition-colors">
+                            Hapus
+                        </button>
+                    </form>
                     {% endif %}
                 </div>
             </li>
@@ -81,51 +78,5 @@
         </div>
     </div>
 
-    <div id="deleteModal" class="modal fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center p-4">
-        <div class="bg-white rounded-lg p-6 w-full max-w-sm shadow-xl transform transition-all">
-            <h3 class="text-lg font-semibold text-gray-800 mb-4">Konfirmasi Penghapusan</h3>
-            <p id="modal-text" class="text-gray-600 mb-6 text-sm">Apakah Anda yakin ingin menghapus file ini?</p>
-            <div class="flex justify-end space-x-2">
-                <button 
-                    onclick="hideDeleteModal()"
-                    class="bg-gray-300 text-gray-800 font-semibold px-4 py-2 rounded-full hover:bg-gray-400 transition-colors"
-                >
-                    Batal
-                </button>
-                <form id="deleteForm" method="post" action="">
-                    <input type="hidden" name="folder_id" id="folder_id_modal">
-                    <button 
-                        type="submit"
-                        class="bg-red-600 text-white font-semibold px-4 py-2 rounded-full hover:bg-red-700 transition-colors"
-                    >
-                        Ya, Hapus
-                    </button>
-                </form>
-            </div>
-        </div>
-    </div>
-
-    <script>
-        function showDeleteModal(fileId, fileName, folderId) {
-            const modal = document.getElementById('deleteModal');
-            const form = document.getElementById('deleteForm');
-            const modalText = document.getElementById('modal-text');
-            const folderIdInput = document.getElementById('folder_id_modal');
-            
-            // Perbarui aksi formulir dengan ID file yang benar
-            form.action = `/delete_file/${fileId}`;
-            // Perbarui teks modal dengan nama file
-            modalText.textContent = `Apakah Anda yakin ingin menghapus file "${fileName}"?`;
-            // Set folder ID ke input tersembunyi
-            folderIdInput.value = folderId;
-
-            modal.style.display = 'flex';
-        }
-
-        function hideDeleteModal() {
-            const modal = document.getElementById('deleteModal');
-            modal.style.display = 'none';
-        }
-    </script>
 </body>
 </html>
