@@ -143,6 +143,10 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+        /* Tambahan fix */
+        .hidden {
+            display: none !important;
+        }
     </style>
 </head>
 <body>
@@ -224,18 +228,18 @@
         const confirmButton = document.getElementById('confirm-button');
         const cancelButton = document.getElementById('cancel-button');
 
-        // State for modal callbacks
         let onConfirmAction = null;
         let onCancelAction = null;
 
         function resizeCanvas() {
+            const data = signaturePad.toData(); // simpan tanda tangan lama
             const ratio = Math.max(window.devicePixelRatio || 1, 1);
             canvas.width = canvas.offsetWidth * ratio;
             canvas.height = canvas.offsetHeight * ratio;
             canvas.getContext('2d').scale(ratio, ratio);
             signaturePad.clear();
+            signaturePad.fromData(data); // restore
         }
-        
         window.addEventListener('resize', resizeCanvas);
         resizeCanvas();
 
@@ -244,33 +248,23 @@
             modalSpinner.classList.toggle('hidden', !showSpinner);
             modalButtons.classList.toggle('hidden', !showButtons);
             statusModal.classList.remove('hidden');
-
             onConfirmAction = onConfirm;
             onCancelAction = onCancel;
-            
-            confirmButton.classList.toggle('hidden', !showButtons);
-            cancelButton.classList.toggle('hidden', !showButtons);
         }
 
         confirmButton.addEventListener('click', () => {
-            if (onConfirmAction) {
-                onConfirmAction();
-            }
+            if (onConfirmAction) onConfirmAction();
             statusModal.classList.add('hidden');
         });
 
         cancelButton.addEventListener('click', () => {
-            if (onCancelAction) {
-                onCancelAction();
-            }
+            if (onCancelAction) onCancelAction();
             statusModal.classList.add('hidden');
         });
 
-        clearBtn.addEventListener('click', function () {
-            signaturePad.clear();
-        });
+        clearBtn.addEventListener('click', () => signaturePad.clear());
 
-        saveBtn.addEventListener('click', function () {
+        saveBtn.addEventListener('click', () => {
             let message = "";
             let isValid = true;
 
@@ -285,6 +279,12 @@
                 message = "Pilih jenis pengajuan (SR/MR/GR/SP/MP/GP) terlebih dahulu!";
                 isValid = false;
             }
+            const bulan = document.getElementById('bulan').value;
+            const tahun = document.getElementById('tahun').value;
+            if (!bulan || !tahun) {
+                message = "Silakan pilih bulan dan tahun realisasi.";
+                isValid = false;
+            }
             {% endif %}
 
             if (!isValid) {
@@ -292,12 +292,7 @@
                 return;
             }
 
-            showModal(
-                "Apakah Anda yakin ingin menyimpan dan melanjutkan?", 
-                false, 
-                true, 
-                processDocument
-            );
+            showModal("Apakah Anda yakin ingin menyimpan dan melanjutkan?", false, true, processDocument);
         });
 
         async function processDocument() {
@@ -341,9 +336,7 @@
                 }
                 
                 showModal("Dokumen berhasil ditandatangani dan dipindahkan.", false, false);
-                
-                // Perbaikan #2: Ubah URL redirect
-                setTimeout(() => window.location.href = "{{ url_for('view_folder', folder_id=folder_id) }}", 2000);
+                window.location.href = "{{ url_for('view_folder', folder_id=folder_id) }}";
 
             } catch (error) {
                 showModal("Terjadi kesalahan: " + error.message, false, false);
