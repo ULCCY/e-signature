@@ -254,7 +254,14 @@ def view_folder(folder_id):
 
     files = get_files(folder_id)
     is_pengajuan_awal = folder_name == "01 - Pengajuan Awal"
-    return render_template("folder.html", files=files, folder_id=folder_id, is_pengajuan_awal=is_pengajuan_awal)
+    is_final_folder = folder_name == "05 - Final"
+    return render_template(
+        "folder.html",
+        files=files,
+        folder_id=folder_id,
+        is_pengajuan_awal=is_pengajuan_awal,
+        is_final_folder=is_final_folder
+    )
 
 # --- Rute untuk OAuth 2.0 ---
 @app.route("/authorize")
@@ -521,8 +528,14 @@ def save_signature():
             return jsonify({"status": "error", "message": "File tidak ditemukan."}), 404
         
         # Penandatanganan dilakukan dengan akun layanan
+        temp_pdf_path = os.path.join(TEMP_DIR, file_metadata.get("name"))
+
+        # Check if the file exists before trying to open it
+        if not os.path.exists(temp_pdf_path):
+            return jsonify({"status": "error", "message": "File not found on server. Please try again."}), 404
+
+        # Penandatanganan dilakukan dengan akun layanan
         if current_folder_name != "05 - Final":
-            temp_pdf_path = os.path.join(TEMP_DIR, file_metadata.get("name"))
             signed_path = add_signature_to_pdf(temp_pdf_path, signature_data)
             if not signed_path:
                 return jsonify({"status": "error", "message": "Gagal menambahkan tanda tangan."}), 500
