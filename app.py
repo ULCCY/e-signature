@@ -503,25 +503,22 @@ def download_pdf(file_id):
 
 @app.route("/preview_file/<file_id>")
 def preview_file(file_id):
-    """Menampilkan halaman pratinjau dan tanda tangan."""
-    file = get_file_by_id(file_id)
-    if not file:
-        flash("File tidak ditemukan.", "error")
-        return redirect(url_for("index"))
-    
-    folder_id = file.get('parents')[0]
-    folder_name = get_folder_name_by_id(folder_id)
-    
-    is_final_folder = folder_name == "05 - Final"
-    is_pengajuan_awal = folder_name == "01 - Pengajuan Awal"
-    
+    folder = request.args.get("folder", "")
+
+    # default tahun & bulan dari hari ini
+    today = datetime.today()
+    default_year = today.year
+    default_month_num = today.strftime("%m")   # "09"
+    default_month_name = today.strftime("%B")  # "September"
+
     return render_template(
-        "view.html", 
-        file_id=file.get('id'), 
-        folder=folder_name, 
-        folder_id=folder_id,
-        is_final_folder=is_final_folder,
-        is_pengajuan_awal=is_pengajuan_awal
+        "preview.html",
+        file_id=file_id,
+        folder=folder,
+        folder_id=request.args.get("folder_id"),
+        default_year=default_year,
+        default_month_num=default_month_num,
+        default_month_name=default_month_name
     )
 
 @app.route("/save_signature", methods=["POST"])
@@ -569,9 +566,15 @@ def save_signature():
         new_filename = file_metadata.get("name")
         kode_pengajuan = None
 
+        # Validasi input tambahan
         if current_folder_name == "01 - Pengajuan Awal":
-            if not all([signature_data, pengajuan_bulan, pengajuan_tahun, perusahaan, pengajuan_akhir]):
-                return jsonify({"status": "error", "message": "Mohon lengkapi semua data dan tanda tangan."}), 400
+            if not (pengajuan_bulan and pengajuan_tahun):
+                return jsonify({"status": "error", "message": "Lengkapi bulan dan tahun pengajuan."}), 400
+
+            # Grup Rabat → wajib isi perusahaan
+            if current_folder_name.startswith("01") and ("02A" in target_folder_id or "03" in target_folder_id):
+                if not perusahaan:
+                    return jsonify({"status": "error", "message": "Perusahaan wajib diisi untuk grup Rabat."}), 400
 
             now = datetime.now()
             month_str = now.strftime("%m")

@@ -188,14 +188,16 @@
                                              ('04','April'),('05','Mei'),('06','Juni'),
                                              ('07','Juli'),('08','Agustus'),('09','September'),
                                              ('10','Oktober'),('11','November'),('12','Desember')] %}
-                            <option value="{{ num }}">{{ bulan }}</option>
+                            <option value="{{ num }}" {% if num == default_month_num %}selected{% endif %}>
+                                {{ bulan }}
+                            </option>
                         {% endfor %}
                     </select>
 
                     <label for="tahun"><strong>Tahun:</strong></label>
                     <select name="tahun" id="tahun" required>
-                        {% for y in range(2023, 2031) %}
-                            <option value="{{ y }}">{{ y }}</option>
+                        {% for y in range(default_year-2, default_year+2) %}
+                            <option value="{{ y }}" {% if y == default_year %}selected{% endif %}>{{ y }}</option>
                         {% endfor %}
                     </select>
                 </div>
