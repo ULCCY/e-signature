@@ -17,6 +17,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload, MediaFileUpload, MediaIoBaseDownload
 from reportlab.pdfgen import canvas as pdf_canvas
 from reportlab.lib.pagesizes import A4
+from reportlab.lib.utils import ImageReader
 from PyPDF2 import PdfReader, PdfWriter
 from googleapiclient.errors import HttpError
 
@@ -175,11 +176,9 @@ def add_signature_to_pdf(input_pdf_bytesio, signature_data_url):
         
         # Check if signature image data is valid and draw it
         try:
-            c.drawImage(
-                io.BytesIO(signature_binary_data),
-                x=220, y=100, width=150, height=50,
-                mask='auto'
-            )
+            image = ImageReader(io.BytesIO(signature_binary_data))
+            c.drawImage(image, x=220, y=100, width=150, height=50, mask='auto')
+            
         except Exception as draw_error:
             logging.error(f"Error drawing image with ReportLab: {draw_error}")
             return None
