@@ -520,7 +520,7 @@ def save_signature():
         data = request.json
         file_id = data.get("file_id")
         current_folder_name = data.get("folder")
-        signature_data = data.get("signature")  # base64 dari canvas
+        signature_data = data.get("signature")
 
         pengajuan_bulan = data.get("pengajuan_bulan")
         pengajuan_tahun = data.get("pengajuan_tahun")
@@ -531,15 +531,15 @@ def save_signature():
         if not file_metadata:
             return jsonify({"status": "error", "message": "File tidak ditemukan."}), 404
 
-        # --- Ambil file dari Google Drive ke BytesIO ---
+        # --- Ambil file dari Google Drive ke BytesIO secara langsung ---
         request_dl = drive_service_sa.files().get_media(fileId=file_id)
         pdf_bytes = io.BytesIO(request_dl.execute())
 
-        # --- Tambah tanda tangan kalau belum Final ---
+        # --- Tambah tanda tangan jika belum di folder Final ---
         if current_folder_name != "05 - Final":
-            signed_bytes = add_signature_to_pdf(pdf_bytes.getvalue(), signature_data)
-
-            media = MediaIoBaseUpload(io.BytesIO(signed_bytes), mimetype="application/pdf", resumable=True)
+            # Perhatikan: memanggil fungsi add_signature_to_pdf dengan objek BytesIO
+            signed_bytes = add_signature_to_pdf(pdf_bytes, signature_data)
+            media = MediaIoBaseUpload(signed_bytes, mimetype="application/pdf", resumable=True)
             drive_service_sa.files().update(fileId=file_id, media_body=media).execute()
 
         # --- Ganti nama kalau masih Pengajuan Awal ---
@@ -557,7 +557,7 @@ def save_signature():
             kode_pengajuan = f"{pengajuan_akhir.upper()}{perusahaan.upper()}"
             original_filename = file_metadata.get("name")
             new_filename = f"{year_str}/{month_str} {kode_pengajuan} - {original_filename}"
-
+            
             drive_service_sa.files().update(fileId=file_id, body={'name': new_filename}).execute()
 
         # --- Tentukan folder tujuan ---
