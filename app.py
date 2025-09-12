@@ -161,17 +161,29 @@ def move_file(file_id, new_parent_id):
 def add_signature_to_pdf(input_pdf_bytesio, signature_data_url):
     """Menambahkan tanda tangan ke PDF menggunakan objek BytesIO."""
     try:
+        # Check if signature data is valid
+        if not signature_data_url or "," not in signature_data_url:
+            logging.error("Invalid signature data URL provided.")
+            return None
+
         header, encoded_data = signature_data_url.split(",", 1)
         signature_binary_data = base64.b64decode(encoded_data)
 
         # Buat PDF tanda tangan dalam memori
         sig_pdf_bytesio = io.BytesIO()
         c = pdf_canvas.Canvas(sig_pdf_bytesio, pagesize=A4)
-        c.drawImage(
-            io.BytesIO(signature_binary_data),
-            x=220, y=100, width=150, height=50,
-            mask='auto'
-        )
+        
+        # Check if signature image data is valid and draw it
+        try:
+            c.drawImage(
+                io.BytesIO(signature_binary_data),
+                x=220, y=100, width=150, height=50,
+                mask='auto'
+            )
+        except Exception as draw_error:
+            logging.error(f"Error drawing image with ReportLab: {draw_error}")
+            return None
+
         c.save()
         sig_pdf_bytesio.seek(0)
 
@@ -193,7 +205,7 @@ def add_signature_to_pdf(input_pdf_bytesio, signature_data_url):
         return signed_bytesio
 
     except Exception as e:
-        logging.error(f"Error saat menambahkan tanda tangan ke PDF: {e}")
+        logging.exception("Error saat menambahkan tanda tangan ke PDF. Full traceback:")
         return None
 
 def get_folder_name_by_id(folder_id):
@@ -523,14 +535,19 @@ def save_signature():
             return jsonify({"status": "error", "message": "File tidak ditemukan."}), 404
         
         # Penandatanganan dilakukan dengan akun layanan
+        signed_bytes = None
         if current_folder_name != "05 - Final":
             # --- Ambil file dari Google Drive ke BytesIO secara langsung ---
             request_dl = drive_service_sa.files().get_media(fileId=file_id)
             pdf_bytes = io.BytesIO(request_dl.execute())
             pdf_bytes.seek(0)
 
-            # Perhatikan: memanggil fungsi add_signature_to_pdf dengan objek BytesIO
             signed_bytes = add_signature_to_pdf(pdf_bytes, signature_data)
+            
+            # Tambahkan cek untuk memastikan penandatanganan berhasil
+            if signed_bytes is None:
+                return jsonify({"status": "error", "message": "Gagal menambahkan tanda tangan ke dokumen."}), 500
+
             media = MediaIoBaseUpload(signed_bytes, mimetype="application/pdf", resumable=True)
             drive_service_sa.files().update(fileId=file_id, media_body=media).execute()
         
@@ -582,7 +599,7 @@ def save_signature():
         return jsonify({"status": "success", "message": "OK"}), 200
 
     except Exception as e:
-        logging.error(f"Error dalam save_signature: {e}")
+        logging.exception("Error dalam save_signature. Full traceback:")
         return jsonify({"status": "error", "message": f"Terjadi kesalahan server: {e}"}), 500
 
 if __name__ == "__main__":
