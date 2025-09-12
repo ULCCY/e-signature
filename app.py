@@ -272,7 +272,9 @@ def authorize():
             "token_uri": "https://oauth2.googleapis.com/token",
         }
     }
-    flow = Flow.from_client_secrets_file(
+    
+    # Gunakan Flow.from_client_config() karena Anda sudah memiliki data dalam bentuk dictionary
+    flow = Flow.from_client_config(
         flow_data,
         scopes=OAUTH_SCOPES,
         redirect_uri=GOOGLE_REDIRECT_URI
@@ -301,7 +303,9 @@ def oauth2callback():
             "token_uri": "https://oauth2.googleapis.com/token",
         }
     }
-    flow = Flow.from_client_secrets_file(
+    
+    # Gunakan Flow.from_client_config() juga di sini
+    flow = Flow.from_client_config(
         flow_data,
         scopes=OAUTH_SCOPES,
         state=state,
