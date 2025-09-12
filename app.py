@@ -158,42 +158,39 @@ def move_file(file_id, new_parent_id):
         logging.error(f"Error saat memindahkan file: {e}")
         return False
 
-def add_signature_to_pdf(input_pdf_buffer: io.BytesIO, signature_data_url: str) -> io.BytesIO:
-    """Menambahkan tanda tangan ke PDF (di halaman terakhir) dan return buffer BytesIO."""
+def add_signature_to_pdf(input_pdf_bytesio, signature_data_url):
+    """Menambahkan tanda tangan ke PDF menggunakan objek BytesIO."""
     try:
-        # --- Decode tanda tangan dari base64 (data:image/png;base64,....) ---
         header, encoded_data = signature_data_url.split(",", 1)
         signature_binary_data = base64.b64decode(encoded_data)
 
-        # --- Buat PDF tanda tangan (in-memory) ---
-        sig_buffer = io.BytesIO()
-        c = pdf_canvas.Canvas(sig_buffer, pagesize=A4)
+        # Buat PDF tanda tangan dalam memori
+        sig_pdf_bytesio = io.BytesIO()
+        c = pdf_canvas.Canvas(sig_pdf_bytesio, pagesize=A4)
         c.drawImage(
-            io.BytesIO(signature_binary_data),  # langsung pakai buffer gambar
+            io.BytesIO(signature_binary_data),
             x=220, y=100, width=150, height=50,
-            mask="auto"
+            mask='auto'
         )
         c.save()
-        sig_buffer.seek(0)
+        sig_pdf_bytesio.seek(0)
 
-        # --- Baca input PDF & signature PDF ---
-        input_pdf = PdfReader(input_pdf_buffer)
-        sig_pdf = PdfReader(sig_buffer)
-
+        input_pdf = PdfReader(input_pdf_bytesio)
+        sig_pdf = PdfReader(sig_pdf_bytesio)
+        
         output = PdfWriter()
 
-        # Copy semua halaman, merge tanda tangan di halaman terakhir
-        for i, page in enumerate(input_pdf.pages):
+        for i in range(len(input_pdf.pages)):
+            page = input_pdf.pages[i]
             if i == len(input_pdf.pages) - 1:
                 page.merge_page(sig_pdf.pages[0])
             output.add_page(page)
 
-        # --- Simpan hasil ke buffer baru ---
-        signed_buffer = io.BytesIO()
-        output.write(signed_buffer)
-        signed_buffer.seek(0)
-
-        return signed_buffer
+        signed_bytesio = io.BytesIO()
+        output.write(signed_bytesio)
+        signed_bytesio.seek(0)
+        
+        return signed_bytesio
 
     except Exception as e:
         logging.error(f"Error saat menambahkan tanda tangan ke PDF: {e}")
@@ -259,14 +256,7 @@ def view_folder(folder_id):
 
     files = get_files(folder_id)
     is_pengajuan_awal = folder_name == "01 - Pengajuan Awal"
-    is_final_folder = folder_name == "05 - Final"
-    return render_template(
-        "folder.html",
-        files=files,
-        folder_id=folder_id,
-        is_pengajuan_awal=is_pengajuan_awal,
-        is_final_folder=is_final_folder
-    )
+    return render_template("folder.html", files=files, folder_id=folder_id, is_pengajuan_awal=is_pengajuan_awal)
 
 # --- Rute untuk OAuth 2.0 ---
 @app.route("/authorize")
@@ -516,12 +506,13 @@ def preview_file(file_id):
 
 @app.route("/save_signature", methods=["POST"])
 def save_signature():
+    """Menerima tanda tangan, menambahkan ke PDF, mengunggah kembali, memindahkan, dan mengganti nama file."""
     try:
         data = request.json
         file_id = data.get("file_id")
         current_folder_name = data.get("folder")
         signature_data = data.get("signature")
-
+        
         pengajuan_bulan = data.get("pengajuan_bulan")
         pengajuan_tahun = data.get("pengajuan_tahun")
         perusahaan = data.get("perusahaan")
@@ -530,44 +521,36 @@ def save_signature():
         file_metadata = get_file_by_id(file_id)
         if not file_metadata:
             return jsonify({"status": "error", "message": "File tidak ditemukan."}), 404
-
-        # --- Ambil file dari Google Drive ke BytesIO secara langsung ---
-        request_dl = drive_service_sa.files().get_media(fileId=file_id)
-        pdf_bytes = io.BytesIO(request_dl.execute())
-
-        # --- Tambah tanda tangan jika belum di folder Final ---
+        
+        # Penandatanganan dilakukan dengan akun layanan
         if current_folder_name != "05 - Final":
+            # --- Ambil file dari Google Drive ke BytesIO secara langsung ---
+            request_dl = drive_service_sa.files().get_media(fileId=file_id)
+            pdf_bytes = io.BytesIO(request_dl.execute())
+            pdf_bytes.seek(0)
+
             # Perhatikan: memanggil fungsi add_signature_to_pdf dengan objek BytesIO
             signed_bytes = add_signature_to_pdf(pdf_bytes, signature_data)
             media = MediaIoBaseUpload(signed_bytes, mimetype="application/pdf", resumable=True)
             drive_service_sa.files().update(fileId=file_id, media_body=media).execute()
-
-        # --- Ganti nama kalau masih Pengajuan Awal ---
+        
         new_filename = file_metadata.get("name")
         kode_pengajuan = None
 
         if current_folder_name == "01 - Pengajuan Awal":
-            # --- bulan & tahun default ke hari ini jika kosong ---
-            if not pengajuan_bulan:
-                pengajuan_bulan = datetime.now().strftime("%m")
-            if not pengajuan_tahun:
-                pengajuan_tahun = datetime.now().strftime("%Y")
+            if not all([signature_data, pengajuan_bulan, pengajuan_tahun, perusahaan, pengajuan_akhir]):
+                return jsonify({"status": "error", "message": "Mohon lengkapi semua data dan tanda tangan."}), 400
 
-            # --- validasi: harus ada signature + pengajuan_akhir + perusahaan (salah satu, Rabat atau PRS) ---
-            if not signature_data or not pengajuan_akhir or not perusahaan:
-                return jsonify({"status": "error", "message": "Mohon lengkapi tanda tangan, perusahaan, dan kode pengajuan."}), 400
-
-            month_str = pengajuan_bulan.zfill(2)  # biar "09", bukan "9"
-            year_str = pengajuan_tahun[-2:]       # ambil 2 digit terakhir
-
+            now = datetime.now()
+            month_str = now.strftime("%m")
+            year_str = now.strftime("%y")
+            
             kode_pengajuan = f"{pengajuan_akhir.upper()}{perusahaan.upper()}"
             original_filename = file_metadata.get("name")
-            new_filename = f"{year_str}/{month_str} {kode_pengajuan} - {original_filename}"
-
             
+            new_filename = f"{year_str}/{month_str} {kode_pengajuan} - {original_filename}"
             drive_service_sa.files().update(fileId=file_id, body={'name': new_filename}).execute()
-
-        # --- Tentukan folder tujuan ---
+        
         folder_mapping = {
             "01 - Pengajuan Awal": {
                 "SR": "02A - SPV HRGA", "MR": "02B - PAMO", "GR": "02B - PAMO",
@@ -582,7 +565,7 @@ def save_signature():
             "04B - Manager": {"MP": "05 - Final"},
             "04C - General": {"GP": "05 - Final"},
         }
-
+        
         if current_folder_name == "01 - Pengajuan Awal":
             kode_pengajuan_to_map = pengajuan_akhir.upper()
         else:
@@ -590,6 +573,7 @@ def save_signature():
             kode_pengajuan_to_map = filename_parts[1].split('-')[0][:2].upper() if len(filename_parts) > 1 else None
 
         target_folder_name = folder_mapping.get(current_folder_name, {}).get(kode_pengajuan_to_map)
+
         if target_folder_name:
             target_id = FOLDERS.get(target_folder_name)
             if target_id:
