@@ -547,16 +547,23 @@ def save_signature():
         kode_pengajuan = None
 
         if current_folder_name == "01 - Pengajuan Awal":
-            if not all([signature_data, pengajuan_bulan, pengajuan_tahun, perusahaan, pengajuan_akhir]):
-                return jsonify({"status": "error", "message": "Mohon lengkapi semua data dan tanda tangan."}), 400
+            # --- bulan & tahun default ke hari ini jika kosong ---
+            if not pengajuan_bulan:
+                pengajuan_bulan = datetime.now().strftime("%m")
+            if not pengajuan_tahun:
+                pengajuan_tahun = datetime.now().strftime("%Y")
 
-            now = datetime.now()
-            month_str = now.strftime("%m")
-            year_str = now.strftime("%y")
+            # --- validasi: harus ada signature + pengajuan_akhir + perusahaan (salah satu, Rabat atau PRS) ---
+            if not signature_data or not pengajuan_akhir or not perusahaan:
+                return jsonify({"status": "error", "message": "Mohon lengkapi tanda tangan, perusahaan, dan kode pengajuan."}), 400
+
+            month_str = pengajuan_bulan.zfill(2)  # biar "09", bukan "9"
+            year_str = pengajuan_tahun[-2:]       # ambil 2 digit terakhir
 
             kode_pengajuan = f"{pengajuan_akhir.upper()}{perusahaan.upper()}"
             original_filename = file_metadata.get("name")
             new_filename = f"{year_str}/{month_str} {kode_pengajuan} - {original_filename}"
+
             
             drive_service_sa.files().update(fileId=file_id, body={'name': new_filename}).execute()
 
