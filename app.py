@@ -158,37 +158,42 @@ def move_file(file_id, new_parent_id):
         logging.error(f"Error saat memindahkan file: {e}")
         return False
 
-def add_signature_to_pdf(input_pdf_path, signature_data_url):
-    """Menambahkan tanda tangan ke PDF. Tanda tangan akan diletakkan di bagian bawah."""
+def add_signature_to_pdf(input_pdf_buffer: io.BytesIO, signature_data_url: str) -> io.BytesIO:
+    """Menambahkan tanda tangan ke PDF (di halaman terakhir) dan return buffer BytesIO."""
     try:
+        # --- Decode tanda tangan dari base64 (data:image/png;base64,....) ---
         header, encoded_data = signature_data_url.split(",", 1)
         signature_binary_data = base64.b64decode(encoded_data)
 
-        sig_pdf_path = os.path.join(TEMP_DIR, "signature.pdf")
-        c = pdf_canvas.Canvas(sig_pdf_path, pagesize=A4)
+        # --- Buat PDF tanda tangan (in-memory) ---
+        sig_buffer = io.BytesIO()
+        c = pdf_canvas.Canvas(sig_buffer, pagesize=A4)
         c.drawImage(
-            io.BytesIO(signature_binary_data),
+            io.BytesIO(signature_binary_data),  # langsung pakai buffer gambar
             x=220, y=100, width=150, height=50,
-            mask='auto'
+            mask="auto"
         )
         c.save()
+        sig_buffer.seek(0)
 
-        input_pdf = PdfReader(open(input_pdf_path, "rb"))
-        sig_pdf = PdfReader(open(sig_pdf_path, "rb"))
-        
+        # --- Baca input PDF & signature PDF ---
+        input_pdf = PdfReader(input_pdf_buffer)
+        sig_pdf = PdfReader(sig_buffer)
+
         output = PdfWriter()
 
-        for i in range(len(input_pdf.pages)):
-            page = input_pdf.pages[i]
+        # Copy semua halaman, merge tanda tangan di halaman terakhir
+        for i, page in enumerate(input_pdf.pages):
             if i == len(input_pdf.pages) - 1:
                 page.merge_page(sig_pdf.pages[0])
             output.add_page(page)
 
-        signed_pdf_path = os.path.join(TEMP_DIR, f"signed_{os.path.basename(input_pdf_path)}")
-        with open(signed_pdf_path, "wb") as f:
-            output.write(f)
+        # --- Simpan hasil ke buffer baru ---
+        signed_buffer = io.BytesIO()
+        output.write(signed_buffer)
+        signed_buffer.seek(0)
 
-        return signed_pdf_path
+        return signed_buffer
 
     except Exception as e:
         logging.error(f"Error saat menambahkan tanda tangan ke PDF: {e}")
@@ -511,13 +516,12 @@ def preview_file(file_id):
 
 @app.route("/save_signature", methods=["POST"])
 def save_signature():
-    """Menerima tanda tangan, menambahkan ke PDF, mengunggah kembali, memindahkan, dan mengganti nama file."""
     try:
         data = request.json
         file_id = data.get("file_id")
         current_folder_name = data.get("folder")
-        signature_data = data.get("signature")
-        
+        signature_data = data.get("signature")  # base64 dari canvas
+
         pengajuan_bulan = data.get("pengajuan_bulan")
         pengajuan_tahun = data.get("pengajuan_tahun")
         perusahaan = data.get("perusahaan")
@@ -526,23 +530,19 @@ def save_signature():
         file_metadata = get_file_by_id(file_id)
         if not file_metadata:
             return jsonify({"status": "error", "message": "File tidak ditemukan."}), 404
-        
-        # Penandatanganan dilakukan dengan akun layanan
-        temp_pdf_path = os.path.join(TEMP_DIR, file_metadata.get("name"))
 
-        # Check if the file exists before trying to open it
-        if not os.path.exists(temp_pdf_path):
-            return jsonify({"status": "error", "message": "File not found on server. Please try again."}), 404
+        # --- Ambil file dari Google Drive ke BytesIO ---
+        request_dl = drive_service_sa.files().get_media(fileId=file_id)
+        pdf_bytes = io.BytesIO(request_dl.execute())
 
-        # Penandatanganan dilakukan dengan akun layanan
+        # --- Tambah tanda tangan kalau belum Final ---
         if current_folder_name != "05 - Final":
-            signed_path = add_signature_to_pdf(temp_pdf_path, signature_data)
-            if not signed_path:
-                return jsonify({"status": "error", "message": "Gagal menambahkan tanda tangan."}), 500
+            signed_bytes = add_signature_to_pdf(pdf_bytes.getvalue(), signature_data)
 
-            media = MediaFileUpload(signed_path, mimetype="application/pdf", resumable=True)
+            media = MediaIoBaseUpload(io.BytesIO(signed_bytes), mimetype="application/pdf", resumable=True)
             drive_service_sa.files().update(fileId=file_id, media_body=media).execute()
-        
+
+        # --- Ganti nama kalau masih Pengajuan Awal ---
         new_filename = file_metadata.get("name")
         kode_pengajuan = None
 
@@ -553,13 +553,14 @@ def save_signature():
             now = datetime.now()
             month_str = now.strftime("%m")
             year_str = now.strftime("%y")
-            
+
             kode_pengajuan = f"{pengajuan_akhir.upper()}{perusahaan.upper()}"
             original_filename = file_metadata.get("name")
-            
             new_filename = f"{year_str}/{month_str} {kode_pengajuan} - {original_filename}"
+
             drive_service_sa.files().update(fileId=file_id, body={'name': new_filename}).execute()
-        
+
+        # --- Tentukan folder tujuan ---
         folder_mapping = {
             "01 - Pengajuan Awal": {
                 "SR": "02A - SPV HRGA", "MR": "02B - PAMO", "GR": "02B - PAMO",
@@ -574,7 +575,7 @@ def save_signature():
             "04B - Manager": {"MP": "05 - Final"},
             "04C - General": {"GP": "05 - Final"},
         }
-        
+
         if current_folder_name == "01 - Pengajuan Awal":
             kode_pengajuan_to_map = pengajuan_akhir.upper()
         else:
@@ -582,20 +583,10 @@ def save_signature():
             kode_pengajuan_to_map = filename_parts[1].split('-')[0][:2].upper() if len(filename_parts) > 1 else None
 
         target_folder_name = folder_mapping.get(current_folder_name, {}).get(kode_pengajuan_to_map)
-
         if target_folder_name:
             target_id = FOLDERS.get(target_folder_name)
             if target_id:
                 move_file(file_id, target_id)
-
-        temp_files_to_remove = [os.path.join(TEMP_DIR, file_metadata.get("name"))]
-        if current_folder_name != "05 - Final" and 'signed_path' in locals():
-            temp_files_to_remove.append(signed_path)
-            temp_files_to_remove.append(os.path.join(TEMP_DIR, "signature.pdf"))
-            
-        for f in temp_files_to_remove:
-            if os.path.exists(f):
-                os.remove(f)
 
         return jsonify({"status": "success", "message": "OK"}), 200
 
