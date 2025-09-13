@@ -32,7 +32,8 @@
     <script>
         const fileId = "{{ file_id }}";
         const folderName = "{{ folder }}"; 
-        
+        const folderId = "{{ folder_id }}"; // Get the folder ID from the template context
+
         // Memulai proses unduhan di sisi server
         fetch(`/start_download/${fileId}`)
             .then(response => {
@@ -64,7 +65,8 @@
                 .then(data => {
                     if (data.ready) {
                         console.log("✅ Dokumen siap, mengalihkan...");
-                        window.location.href = `/preview_file/${fileId}?folder=${folderName}`;
+                        // FIX: Pass the folderId in the URL
+                        window.location.href = `/preview_file/${fileId}?folder=${folderName}&folder_id=${folderId}`;
                     } else {
                         setTimeout(checkReady, 1000); // Polling lagi setelah 1 detik
                     }

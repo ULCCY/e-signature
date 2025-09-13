@@ -501,25 +501,34 @@ def download_pdf(file_id):
         flash("Gagal memuat file.", "error")
         return redirect(url_for("index"))
 
+from flask import redirect, url_for
+from datetime import datetime
+
 @app.route("/preview_file/<file_id>")
 def preview_file(file_id):
     folder = request.args.get("folder", "")
+    folder_id = request.args.get("folder_id")  # bisa None
+
+    # Kalau folder_id tidak ada, langsung balik ke halaman utama
+    if not folder_id:
+        return redirect(url_for("index"))
 
     # default tahun & bulan dari hari ini
     today = datetime.today()
     default_year = today.year
-    default_month_num = today.strftime("%m")   # "09"
-    default_month_name = today.strftime("%B")  # "September"
+    default_month_num = today.strftime("%m")
+    default_month_name = today.strftime("%B")
 
     return render_template(
         "preview.html",
         file_id=file_id,
         folder=folder,
-        folder_id=request.args.get("folder_id"),
+        folder_id=folder_id,
         default_year=default_year,
         default_month_num=default_month_num,
         default_month_name=default_month_name
     )
+
 
 @app.route("/save_signature", methods=["POST"])
 def save_signature():
