@@ -537,6 +537,7 @@ def save_signature():
     try:
         # Pindahkan semua pengambilan data dari request dan validasi di sini
         data = request.json
+        logging.info(f"Data yang diterima: {data}")
         if not data:
             return jsonify({"status": "error", "message": "Permintaan tidak memiliki data JSON."}), 400
 
