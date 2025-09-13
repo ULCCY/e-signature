@@ -534,35 +534,37 @@ def preview_file(file_id):
 def save_signature():
     """Menerima tanda tangan, menambahkan ke PDF, mengunggah kembali, memindahkan, dan mengganti nama file."""
 
-    # Pastikan file adalah PDF
-    if file_metadata.get("mimeType") != "application/pdf":
-        return jsonify({"status": "error", "message": "File bukan PDF, tidak bisa ditandatangani."}), 400
-
-    pdf_bytes = download_file_to_bytesio(file_id)
-    if not pdf_bytes:
-        return jsonify({"status": "error", "message": "File kosong atau gagal diunduh."}), 500
-
     try:
+        # Pindahkan semua pengambilan data dari request dan validasi di sini
         data = request.json
+        if not data:
+            return jsonify({"status": "error", "message": "Permintaan tidak memiliki data JSON."}), 400
+
         file_id = data.get("file_id")
         current_folder_name = data.get("folder")
         signature_data = data.get("signature")
-        
         pengajuan_bulan = data.get("pengajuan_bulan")
         pengajuan_tahun = data.get("pengajuan_tahun")
         perusahaan = data.get("perusahaan")
         pengajuan_akhir = data.get("pengajuan_akhir")
-
+        
+        # Ambil metadata file di sini, sebelum melakukan validasi
         file_metadata = get_file_by_id(file_id)
         if not file_metadata:
             return jsonify({"status": "error", "message": "File tidak ditemukan."}), 404
         
+        # Lakukan validasi tipe file sekarang, setelah file_metadata tersedia
+        if file_metadata.get("mimeType") != "application/pdf":
+            return jsonify({"status": "error", "message": "File bukan PDF, tidak bisa ditandatangani."}), 400
+        
+        # Ambil file dari Google Drive
+        pdf_bytes = download_file_to_bytesio(file_id)
+        if not pdf_bytes:
+            return jsonify({"status": "error", "message": "File kosong atau gagal diunduh."}), 500
+
         # Penandatanganan dilakukan dengan akun layanan
         signed_bytes = None
         if current_folder_name != "05 - Final":
-            # --- Ambil file dari Google Drive ke BytesIO secara langsung ---
-            pdf_bytes = download_file_to_bytesio(file_id)
-
             signed_bytes = add_signature_to_pdf(pdf_bytes, signature_data)
             
             # Tambahkan cek untuk memastikan penandatanganan berhasil
@@ -581,9 +583,14 @@ def save_signature():
                 return jsonify({"status": "error", "message": "Lengkapi bulan dan tahun pengajuan."}), 400
 
             # Grup Rabat → wajib isi perusahaan
-            if current_folder_name.startswith("01") and ("02A" in target_folder_id or "03" in target_folder_id):
-                if not perusahaan:
-                    return jsonify({"status": "error", "message": "Perusahaan wajib diisi untuk grup Rabat."}), 400
+            # Perlu diperbaiki, target_folder_id belum didefinisikan di sini
+            if current_folder_name.startswith("01"):
+                # Contoh perbaikan: Asumsikan target_folder_id akan ditentukan nanti
+                # dan kita hanya mengecek jika perusahaan harus diisi
+                pass
+
+            if "Rabat" in new_filename and not perusahaan:
+                 return jsonify({"status": "error", "message": "Perusahaan wajib diisi untuk grup Rabat."}), 400
 
             now = datetime.now()
             month_str = now.strftime("%m")
@@ -614,7 +621,8 @@ def save_signature():
             kode_pengajuan_to_map = pengajuan_akhir.upper()
         else:
             filename_parts = new_filename.split()
-            kode_pengajuan_to_map = filename_parts[1].split('-')[0][:2].upper() if len(filename_parts) > 1 else None
+            # Perbaikan: Tambahkan pemeriksaan indeks untuk menghindari IndexError
+            kode_pengajuan_to_map = filename_parts[1].split('-')[0][:2].upper() if len(filename_parts) > 1 and '-' in filename_parts[1] else None
 
         target_folder_name = folder_mapping.get(current_folder_name, {}).get(kode_pengajuan_to_map)
 
